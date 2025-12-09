@@ -61,8 +61,40 @@ int main() {
         roj->drony[i].stan = STAN_WOLNY;
     }
 
-    printf("[OPERATOR] ENTER aby zakonczyc\n");
-    getchar();
+    printf("[OPERATOR] Zaczynam zarządzać rojem. (Ctrl+C aby zakończyć)\n");
+
+    while(1) {
+        for (int i=0; i<N; i++) {
+            if (roj->drony[i].stan == STAN_WOLNY) {
+                int wolne_miejsca = semctl(sem_id, SEM_BAZA, GETVAL);
+                if(wolne_miejsca > 0) {
+                    printf("[OPERATOR] Wykryto brak drona na pozycji %d. Tworzę nowego...\n", i);
+                    P(sem_id, SEM_BAZA);
+
+                    pid_t pid = fork();
+
+                    if (pid == 0) {
+                        char bufor_id[10];
+                        sprintf(bufor_id, "%d", i);
+                        execl("./dron", "dron", bufor_id, NULL);
+                        perror("Błąd execl");
+                        exit(1);
+                    } else if (pid > 0) {
+                        P(sem_id, SEM_PAMIEC);
+                        roj->drony[i].pid = pid;
+                        roj->drony[i].id_wewnetrzne = i;
+                        roj->drony[i].bateria = 0;
+                        roj->drony[i].liczba_cykli = 0;
+                        roj->drony[i].stan = STAN_LADOWANIE;
+                        V(sem_id, SEM_PAMIEC);
+                    }
+                } else {
+                    //printf("Brak mijesca w bazie\n");
+                }
+            }
+        }
+        sleep(2);
+    }
 
     shmdt(roj);
     shmctl(shm_id, IPC_RMID, NULL);
