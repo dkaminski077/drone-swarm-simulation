@@ -13,9 +13,18 @@ void V(int sem_id, int sem_num) {
 int main() {
     key_t klucz_shm = ftok(FTOK_PATH, FTOK_ID);
     key_t klucz_sem = ftok(FTOK_PATH, 'S');
+    key_t klucz_msg = ftok(FTOK_PATH, 'Q');
 
-    if (klucz_shm == -1 || klucz_sem == -1) {
+    if (klucz_shm == -1 || klucz_sem == -1 || klucz_msg == -1) {
         perror("Błąd ftok");
+        return 1;
+    }
+
+    //---KOLEJKA KOMUNIKATOW----
+    int msg_id = msgget(klucz_msg, 0666 | IPC_CREAT);
+
+    if (msg_id == -1) {
+        perror("Błąd tworzenia kolejki komunikatów");
         return 1;
     }
 
@@ -55,21 +64,68 @@ int main() {
     }
 
     roj->pojemnosc_bazy = POJEMNOSC_BAZY;
-    printf("[OPERATOR] Baza gotowa. Pojemność: %d\n", roj->pojemnosc_bazy);
+    roj->aktualny_limit_dronow = N;
 
-    for (int i=0; i<N*2; i++) {
+    for (int i=0; i<MAX_DRONOW; i++) {
         roj->drony[i].stan = STAN_WOLNY;
     }
 
-    printf("[OPERATOR] Zaczynam zarządzać rojem. (Ctrl+C aby zakończyć)\n");
+    printf("[OPERATOR] Zaczynam zarządzać rojem. Limit dronów: %d. Max możliwy: %d. (Ctrl+C aby zakończyć)\n", N, MAX_DRONOW);
 
-    while(1) {
-        for (int i=0; i<N; i++) {
+    int start_index = 0;
+
+    while(1) {  
+        struct Komunikat msg;
+
+        while (msgrcv(msg_id, &msg, sizeof(int), 0, IPC_NOWAIT) != -1) {
+            if (msg.mtype == TYP_DODAJ_PLATFORMY) {
+                if(roj->aktualny_limit_dronow < MAX_DRONOW) {
+                    roj->aktualny_limit_dronow++;
+                    if((roj->pojemnosc_bazy + 1) * 2 < roj->aktualny_limit_dronow) {
+                        V(sem_id, SEM_BAZA);
+                        roj->pojemnosc_bazy++;
+                        printf("[SYGNAŁ 1] Dodano drona i platformę. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
+                    } else {
+                        printf("[SYGNAŁ 1] Dodano drona. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
+                    }
+                } else {
+                    printf("[SYGNAŁ 1] Osiągnięto MAX_DRONOW (2*N)\n");
+                }
+            } else if (msg.mtype == TYP_USUN_PLATFORMY) {
+                int stary_limit = roj->aktualny_limit_dronow;
+                int nowy_limit = stary_limit / 2;
+                if (nowy_limit < 2) nowy_limit = 2;
+
+                int max_dozwolona_baza = (nowy_limit - 1) / 2;
+                if(max_dozwolona_baza < 1) max_dozwolona_baza = 1;
+
+                int obecna_baza = roj->pojemnosc_bazy;
+                int do_usuniecia = obecna_baza - max_dozwolona_baza;
+
+                if (do_usuniecia < 0) do_usuniecia = 0;
+
+                printf("[SYGNAŁ 2] Redukcja dronów z %d do %d.\n", stary_limit, nowy_limit);
+
+                roj->aktualny_limit_dronow = nowy_limit;
+
+                int usuniete_platformy = 0;
+                for (int i=0; i<do_usuniecia; i++) {
+                    struct sembuf op = {SEM_BAZA, -1, IPC_NOWAIT};
+                    if(semop(sem_id, &op, 1) == 0) {
+                        usuniete_platformy++;
+                        roj->pojemnosc_bazy--;
+                    }
+                }
+                printf("[SYGNAŁ 2] Zdemontowano %d platform.\n", usuniete_platformy);
+            }
+        }
+
+        for (int k=0; k<roj->aktualny_limit_dronow; k++) {
+            int i = (start_index + k) % roj->aktualny_limit_dronow; 
             if (roj->drony[i].stan == STAN_WOLNY) {
-                int wolne_miejsca = semctl(sem_id, SEM_BAZA, GETVAL);
-                if(wolne_miejsca > 0) {
+                struct sembuf zajmij_miejsce = {SEM_BAZA, -1, IPC_NOWAIT};
+                if(semop(sem_id, &zajmij_miejsce, 1) == 0) {
                     printf("[OPERATOR] Wykryto brak drona na pozycji %d. Tworzę nowego...\n", i);
-                    P(sem_id, SEM_BAZA);
 
                     pid_t pid = fork();
 
@@ -87,9 +143,9 @@ int main() {
                         roj->drony[i].liczba_cykli = 0;
                         roj->drony[i].stan = STAN_LADOWANIE;
                         V(sem_id, SEM_PAMIEC);
+
+                        start_index = (i + 1) % roj->aktualny_limit_dronow;
                     }
-                } else {
-                    //printf("Brak mijesca w bazie\n");
                 }
             }
         }

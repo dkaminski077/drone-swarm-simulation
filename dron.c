@@ -1,4 +1,9 @@
 #include "common.h"
+#include <time.h>
+
+struct StanRoju *g_roj = NULL;
+int g_sem_id = -1;
+int g_id_drona = -1;
 
 void P(int sem_id, int sem_num) {
     struct sembuf op = {sem_num, -1, 0};
@@ -10,12 +15,42 @@ void V(int sem_id, int sem_num) {
     semop(sem_id, &op, 1);
 }
 
+void atak(int sig) {
+    if (g_id_drona == -1) return;
+
+    int bateria = g_roj->drony[g_id_drona].bateria;
+    int stan = g_roj->drony[g_id_drona].stan;
+
+    printf("    [DRON %d] !!! OTRZYMAŁEM ROZAKZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%, Stan: %d\n)", g_id_drona, bateria, stan);
+
+    if (bateria < 20) {
+        printf("    [DRON %d] Bateria zbyt słaba na atak (<20%%). Ignoruje rozkaz.\n", g_id_drona);
+        return;
+    }
+
+    printf("    [DRON %d] !!! Atak samobójczy wykonany.\n", g_id_drona);
+
+    P(g_sem_id, SEM_PAMIEC);
+    g_roj->drony[g_id_drona].stan = STAN_WOLNY;
+    V(g_sem_id, SEM_PAMIEC);
+
+    if(stan == STAN_LADOWANIE) {
+        V(g_sem_id, SEM_BAZA);
+    }
+
+    exit(0);
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Błąd: Dron musi być uruchomiony przez Operatora (brak ID)!\n");
         return 1;
     }
     int id_wew = atoi(argv[1]);
+
+    g_id_drona = id_wew;
+
+    srand(time(NULL) ^ getpid());
 
     key_t klucz_shm = ftok(FTOK_PATH, FTOK_ID);
     key_t klucz_sem = ftok(FTOK_PATH, 'S');
@@ -34,10 +69,15 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    g_roj = roj;
+    g_sem_id = sem_id;
+
+    signal(SIGUSR1, atak);
+
     printf("   [DRON %d] PID: %d. Uruchomiony. Bateria 0%%.\n", id_wew, getpid());
 
     while(1) {
-        sleep(6);
+        sleep(2); //T1
 
         P(sem_id, SEM_PAMIEC);
         roj->drony[id_wew].bateria = 100;
@@ -102,7 +142,7 @@ int main(int argc, char *argv[]) {
                 break;
             } else {
                 P(sem_id, SEM_PAMIEC);
-                roj->drony[id_wew].bateria -= 1;
+                roj->drony[id_wew].bateria -= 10;
                 int poziom = roj->drony[id_wew].bateria;
                 V(sem_id, SEM_PAMIEC);
 

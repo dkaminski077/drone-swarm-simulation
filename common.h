@@ -10,9 +10,10 @@
 #include <sys/sem.h>
 #include <sys/msg.h>
 #include <time.h>
+#include <signal.h>
 
-#define N 10
-#define POJEMNOSC_MAX 20
+#define N 12
+#define MAX_DRONOW (N*2)
 #define POJEMNOSC_BAZY 4
 #define BAT_CRITICAL 20
 #define MAX_CYKLI 5
@@ -37,8 +38,9 @@ struct Dron {
 };
 
 struct StanRoju {
-    struct Dron drony[N * 2];
+    struct Dron drony[MAX_DRONOW];
     int pojemnosc_bazy;
+    int aktualny_limit_dronow;
 };
 
 #define TYP_DODAJ_PLATFORMY 1
@@ -46,7 +48,6 @@ struct StanRoju {
 
 struct Komunikat {
     long mtype;
-    int dane;
 };
 
 union semun {
