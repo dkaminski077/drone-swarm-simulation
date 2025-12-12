@@ -1,9 +1,9 @@
 #include "common.h"
-#include <time.h>
 
 struct StanRoju *g_roj = NULL;
 int g_sem_id = -1;
 int g_id_drona = -1;
+
 
 void P(int sem_id, int sem_num) {
     struct sembuf op = {sem_num, -1, 0};
@@ -21,14 +21,14 @@ void atak(int sig) {
     int bateria = g_roj->drony[g_id_drona].bateria;
     int stan = g_roj->drony[g_id_drona].stan;
 
-    printf("    [DRON %d] !!! OTRZYMAŁEM ROZAKZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%, Stan: %d\n)", g_id_drona, bateria, stan);
+    loguj("    [DRON %d] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%, Stan: %d)\n", g_id_drona, bateria, stan);
 
     if (bateria < 20) {
-        printf("    [DRON %d] Bateria zbyt słaba na atak (<20%%). Ignoruje rozkaz.\n", g_id_drona);
+        loguj("    [DRON %d] Bateria zbyt słaba na atak (<20%%). Ignoruje rozkaz.\n", g_id_drona);
         return;
     }
 
-    printf("    [DRON %d] !!! Atak samobójczy wykonany.\n", g_id_drona);
+    loguj("    [DRON %d] !!! Atak samobójczy wykonany.\n", g_id_drona);
 
     P(g_sem_id, SEM_PAMIEC);
     g_roj->drony[g_id_drona].stan = STAN_WOLNY;
@@ -43,7 +43,7 @@ void atak(int sig) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Błąd: Dron musi być uruchomiony przez Operatora (brak ID)!\n");
+        loguj("Błąd: Dron musi być uruchomiony przez Operatora (brak ID)!\n");
         return 1;
     }
     int id_wew = atoi(argv[1]);
@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
 
     signal(SIGUSR1, atak);
 
-    printf("   [DRON %d] PID: %d. Uruchomiony. Bateria 0%%.\n", id_wew, getpid());
+    loguj("   [DRON %d] PID: %d. Uruchomiony. Bateria 0%%.\n", id_wew, getpid());
 
     while(1) {
         sleep(2); //T1
@@ -86,26 +86,38 @@ int main(int argc, char *argv[]) {
         V(sem_id, SEM_PAMIEC);
 
         if (cykle > MAX_CYKLI) {
-            printf("    [DRON %d] Zużyty (cykle: %d). Idę na złom.\n", id_wew, cykle);
+            loguj("    [DRON %d] Zużyty (cykle: %d). Idę na złom.\n", id_wew, cykle);
             break;
         }
 
-        printf("    [DRON %d] Naładowany. Czekam na wylot.\n", id_wew);
+        loguj("    [DRON %d] Naładowany. Czekam na wylot.\n", id_wew);
 
         int bramka = (rand()%2) + SEM_WEJSCIE_1;
 
         P(sem_id, bramka);
-        printf("    [DRON %d] Wylatuję bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 +1);
+        loguj("    [DRON %d] Wylatuję bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 +1);
         sleep(1);
         V(sem_id, bramka);
 
-        V(sem_id, SEM_BAZA);
+        P(sem_id, SEM_PAMIEC);
+        int zniszcz_platforme = 0;
+        if (roj->platformy_do_usuniecia > 0) {
+            roj->platformy_do_usuniecia--;
+            zniszcz_platforme = 1;
+        }
+        V(sem_id, SEM_PAMIEC);
+
+        if (zniszcz_platforme) {
+            loguj("    [DRON %d] Demontuje za sobą platformę.\n", id_wew);
+        } else {
+            V(sem_id, SEM_BAZA);
+        }
 
         P(sem_id, SEM_PAMIEC);
         roj->drony[id_wew].stan = STAN_LOT;
         V(sem_id, SEM_PAMIEC);
 
-        printf("    [DRON %d] Wyleciałem. Latam...\n", id_wew);
+        loguj("    [DRON %d] Wyleciałem. Latam...\n", id_wew);
 
         while(1) {
             sleep(1);
@@ -116,12 +128,12 @@ int main(int argc, char *argv[]) {
             V(sem_id, SEM_PAMIEC);
 
             if (poziom <= BAT_CRITICAL) {
-                printf("    [DRON %d] Bateria słaba (%d%%). Wracam do bazy.\n", id_wew, poziom);
+                loguj("    [DRON %d] Bateria słaba (%d%%). Wracam do bazy.\n", id_wew, poziom);
                 break;
             }
 
             if (poziom <= 0) {
-                printf("    [DRON %d] Bateria 0%%. Rozbity.\n", id_wew);
+                loguj("    [DRON %d] Bateria 0%%. Rozbity.\n", id_wew);
                 P(sem_id, SEM_PAMIEC);
                 roj->drony[id_wew].stan = STAN_WOLNY;
                 V(sem_id, SEM_PAMIEC);
@@ -133,7 +145,7 @@ int main(int argc, char *argv[]) {
         roj->drony[id_wew].stan = STAN_POWROT;
         V(sem_id, SEM_PAMIEC);
 
-        printf("    [DRON %d] Zbliżam się do bazy. Próbuję lądować...\n", id_wew);
+        loguj("    [DRON %d] Zbliżam się do bazy. Próbuję lądować...\n", id_wew);
 
         while(1) {
             struct sembuf wejdz = {SEM_BAZA, -1, IPC_NOWAIT};
@@ -146,10 +158,10 @@ int main(int argc, char *argv[]) {
                 int poziom = roj->drony[id_wew].bateria;
                 V(sem_id, SEM_PAMIEC);
 
-                printf("    [DRON %d] Baza pełna. Krążę... (Bateria: %d%%)\n", id_wew, poziom);
+                loguj("    [DRON %d] Baza pełna. Krążę... (Bateria: %d%%)\n", id_wew, poziom);
 
                 if (poziom <=0 ) {
-                    printf("    [DRON %d] Bateria 0%%. Rozbity.\n", id_wew);
+                    loguj("    [DRON %d] Bateria 0%%. Rozbity.\n", id_wew);
                     P(sem_id, SEM_PAMIEC);
                     roj->drony[id_wew].stan = STAN_WOLNY;
                     V(sem_id, SEM_PAMIEC);
@@ -161,7 +173,7 @@ int main(int argc, char *argv[]) {
 
         bramka = (rand()%2) + SEM_WEJSCIE_1;
         P(sem_id, bramka);
-        printf("    [DRON %d] Ląduję bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 + 1);
+        loguj("    [DRON %d] Ląduję bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 + 1);
         sleep(1);
         V(sem_id, bramka);
 
@@ -176,7 +188,7 @@ int main(int argc, char *argv[]) {
 
     V(sem_id, SEM_BAZA);
 
-    printf("    [DRON %d] Złomowanie zakończone.\n", id_wew);
+    loguj("    [DRON %d] Złomowanie zakończone.\n", id_wew);
 
     shmdt(roj);
     return 0;

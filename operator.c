@@ -1,5 +1,10 @@
 #include "common.h"
 
+int g_shm_id = -1;
+int g_sem_id = -1;
+int g_msg_id = -1;
+
+
 void P(int sem_id, int sem_num) {
     struct sembuf op = {sem_num, -1, 0};
     semop(sem_id, &op, 1);
@@ -10,7 +15,29 @@ void V(int sem_id, int sem_num) {
     semop(sem_id, &op, 1);
 }
 
+void sprzatanie(int sig) {
+    if (g_shm_id != -1) {
+        if(shmctl(g_shm_id, IPC_RMID, NULL) != -1) loguj("\n[OPERATOR] Pamięć dzielona usunięta.\n");
+    } 
+
+    if (g_sem_id != -1) {
+        if(semctl(g_sem_id, 0, IPC_RMID) != -1) loguj("[OPERATOR] Semafory usunięte.\n");
+    } 
+
+    if (g_msg_id != -1) {
+        if(msgctl(g_msg_id, IPC_RMID, NULL) != -1) loguj("[OPERATOR] Kolejka komunikatów usunięta.\n");
+    } 
+
+    loguj("[OPERATOR] KONIEC SYMULACJI\n");
+        
+    kill(0, SIGKILL);
+    exit(0);
+
+}
+
 int main() {
+    signal(SIGINT, sprzatanie);
+
     key_t klucz_shm = ftok(FTOK_PATH, FTOK_ID);
     key_t klucz_sem = ftok(FTOK_PATH, 'S');
     key_t klucz_msg = ftok(FTOK_PATH, 'Q');
@@ -27,6 +54,7 @@ int main() {
         perror("Błąd tworzenia kolejki komunikatów");
         return 1;
     }
+    g_msg_id = msg_id;
 
     //---PAMIEC DZIELONA---
     int shm_id = shmget(klucz_shm, sizeof(struct StanRoju), 0666 | IPC_CREAT);
@@ -35,6 +63,7 @@ int main() {
         perror("Błąd tworzenia pamięci (shmget)");
         return 1;
     }
+    g_shm_id = shm_id;
 
     //---SEMAFORY---
     int sem_id = semget(klucz_sem, ILOSC_SEMAFOROW, 0666 | IPC_CREAT);
@@ -43,6 +72,7 @@ int main() {
         perror("Błąd tworzenia semaforów");
         return 1;
     }
+    g_sem_id = sem_id;
 
     if (semctl(sem_id, SEM_BAZA, SETVAL, POJEMNOSC_BAZY) == -1) {
         perror("Błąd inizjalizacji SEM_BAZA");
@@ -53,7 +83,7 @@ int main() {
     if (semctl(sem_id, SEM_WEJSCIE_2, SETVAL, 1) == -1) perror("Błąd SEM_WEJSCIE_2");
     if (semctl(sem_id, SEM_PAMIEC, SETVAL, 1) == -1) perror("Błąd SEM_PAMIEC");
 
-    printf("[OPERATOR] Semfory ustawione. Baza: %d miejsc, Wejścia otwarte.\n", POJEMNOSC_BAZY);
+    loguj("[OPERATOR] Semfory ustawione. Baza: %d miejsc, Wejścia otwarte.\n", POJEMNOSC_BAZY);
 
 
     struct StanRoju *roj = (struct StanRoju*) shmat(shm_id, NULL, 0);
@@ -65,12 +95,13 @@ int main() {
 
     roj->pojemnosc_bazy = POJEMNOSC_BAZY;
     roj->aktualny_limit_dronow = N;
+    roj->platformy_do_usuniecia = 0;
 
     for (int i=0; i<MAX_DRONOW; i++) {
         roj->drony[i].stan = STAN_WOLNY;
     }
 
-    printf("[OPERATOR] Zaczynam zarządzać rojem. Limit dronów: %d. Max możliwy: %d. (Ctrl+C aby zakończyć)\n", N, MAX_DRONOW);
+    loguj("[OPERATOR] Zaczynam zarządzać rojem. Limit dronów: %d. Max możliwy: %d. (Ctrl+C aby zakończyć)\n", N, MAX_DRONOW);
 
     int start_index = 0;
 
@@ -84,17 +115,17 @@ int main() {
                     if((roj->pojemnosc_bazy + 1) * 2 < roj->aktualny_limit_dronow) {
                         V(sem_id, SEM_BAZA);
                         roj->pojemnosc_bazy++;
-                        printf("[SYGNAŁ 1] Dodano drona i platformę. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
+                        loguj("[SYGNAŁ 1] Dodano drona i platformę. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
                     } else {
-                        printf("[SYGNAŁ 1] Dodano drona. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
+                        loguj("[SYGNAŁ 1] Dodano drona. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
                     }
                 } else {
-                    printf("[SYGNAŁ 1] Osiągnięto MAX_DRONOW (2*N)\n");
+                    loguj("[SYGNAŁ 1] Osiągnięto MAX_DRONOW (2*N)\n");
                 }
             } else if (msg.mtype == TYP_USUN_PLATFORMY) {
                 int stary_limit = roj->aktualny_limit_dronow;
                 int nowy_limit = stary_limit / 2;
-                if (nowy_limit < 2) nowy_limit = 2;
+                if (nowy_limit < 4) nowy_limit = 4;
 
                 int max_dozwolona_baza = (nowy_limit - 1) / 2;
                 if(max_dozwolona_baza < 1) max_dozwolona_baza = 1;
@@ -104,19 +135,28 @@ int main() {
 
                 if (do_usuniecia < 0) do_usuniecia = 0;
 
-                printf("[SYGNAŁ 2] Redukcja dronów z %d do %d.\n", stary_limit, nowy_limit);
+                loguj("[SYGNAŁ 2] Redukcja! Drony: %d->%d. Baza: %d->%d\n", stary_limit, nowy_limit, obecna_baza, max_dozwolona_baza);
 
                 roj->aktualny_limit_dronow = nowy_limit;
+                roj->pojemnosc_bazy = max_dozwolona_baza;
 
-                int usuniete_platformy = 0;
+                int usuniete_natychmiast = 0;
                 for (int i=0; i<do_usuniecia; i++) {
                     struct sembuf op = {SEM_BAZA, -1, IPC_NOWAIT};
                     if(semop(sem_id, &op, 1) == 0) {
-                        usuniete_platformy++;
-                        roj->pojemnosc_bazy--;
+                        usuniete_natychmiast++;
                     }
                 }
-                printf("[SYGNAŁ 2] Zdemontowano %d platform.\n", usuniete_platformy);
+
+                int reszta = do_usuniecia - usuniete_natychmiast;
+                if (reszta > 0) {
+                    P(sem_id, SEM_PAMIEC);
+                    roj->platformy_do_usuniecia += reszta;
+                    V(sem_id, SEM_PAMIEC);
+                    loguj("[SYGNAŁ 2] Zdemontowano od razu: %d platform. Pozostało do usunięcia: %d.\n", usuniete_natychmiast, reszta);
+                } else {
+                    loguj("[SYGNAŁ 2] Zdemontowano od razu %d platform.\n", usuniete_natychmiast);
+                }
             }
         }
 
@@ -125,7 +165,7 @@ int main() {
             if (roj->drony[i].stan == STAN_WOLNY) {
                 struct sembuf zajmij_miejsce = {SEM_BAZA, -1, IPC_NOWAIT};
                 if(semop(sem_id, &zajmij_miejsce, 1) == 0) {
-                    printf("[OPERATOR] Wykryto brak drona na pozycji %d. Tworzę nowego...\n", i);
+                    loguj("[OPERATOR] Wykryto brak drona na pozycji %d. Tworzę nowego...\n", i);
 
                     pid_t pid = fork();
 
@@ -151,11 +191,5 @@ int main() {
         }
         sleep(2);
     }
-
-    shmdt(roj);
-    shmctl(shm_id, IPC_RMID, NULL);
-    semctl(sem_id, 0, IPC_RMID);
-    printf("[OPERATOR] Zasoby usunięte. KONIEC\n");
-
     return 0;
 }

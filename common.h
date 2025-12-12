@@ -11,6 +11,8 @@
 #include <sys/msg.h>
 #include <time.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <string.h>
 
 #define N 12
 #define MAX_DRONOW (N*2)
@@ -41,6 +43,7 @@ struct StanRoju {
     struct Dron drony[MAX_DRONOW];
     int pojemnosc_bazy;
     int aktualny_limit_dronow;
+    int platformy_do_usuniecia;
 };
 
 #define TYP_DODAJ_PLATFORMY 1
@@ -61,5 +64,28 @@ union semun {
 #define SEM_WEJSCIE_2 2
 #define SEM_PAMIEC 3
 #define ILOSC_SEMAFOROW 4
+
+static void zapisz_do_pliku(const char *tekst) {
+    int fd = open("logi.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd != -1) {
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+        char linia[1024];
+        
+        sprintf(linia, "[%02d:%02d:%02d][%d] %s", t->tm_hour, t->tm_min, t->tm_sec, getpid(), tekst);
+        
+        write(fd, linia, strlen(linia));
+        
+        close(fd);
+    }
+}
+
+#define loguj(...) { \
+    char bufor[512]; \
+    sprintf(bufor, __VA_ARGS__); \
+    printf("%s", bufor); \
+    fflush(stdout); \
+    zapisz_do_pliku(bufor); \
+}
 
 #endif
