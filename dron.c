@@ -21,14 +21,14 @@ void atak(int sig) {
     int bateria = g_roj->drony[g_id_drona].bateria;
     int stan = g_roj->drony[g_id_drona].stan;
 
-    loguj("    [DRON %d] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%, Stan: %d)\n", g_id_drona, bateria, stan);
+    loguj(CZERWONY "    [DRON %d] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%)." RESET "\n", g_id_drona, bateria);
 
     if (bateria < 20) {
-        loguj("    [DRON %d] Bateria zbyt słaba na atak (<20%%). Ignoruje rozkaz.\n", g_id_drona);
+        loguj(ZOLTY "    [DRON %d] Atak anulowany - zbyt słaba bateria (<20%%)." RESET "\n", g_id_drona);
         return;
     }
 
-    loguj("    [DRON %d] !!! Atak samobójczy wykonany.\n", g_id_drona);
+    loguj(CZERWONY "    [DRON %d] !!! ATAK WYKONANY !!!" RESET "\n", g_id_drona);
 
     P(g_sem_id, SEM_PAMIEC);
     g_roj->drony[g_id_drona].stan = STAN_WOLNY;
@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
 
     signal(SIGUSR1, atak);
 
-    loguj("   [DRON %d] PID: %d. Uruchomiony. Bateria 0%%.\n", id_wew, getpid());
+    loguj(ZIELONY "    [DRON %d] PID: %d. Uruchomiono. Bateria 0%%." RESET "\n", id_wew, getpid());
 
     while(1) {
         sleep(2); //T1
@@ -86,16 +86,16 @@ int main(int argc, char *argv[]) {
         V(sem_id, SEM_PAMIEC);
 
         if (cykle > MAX_CYKLI) {
-            loguj("    [DRON %d] Zużyty (cykle: %d). Idę na złom.\n", id_wew, cykle);
+            loguj(ZOLTY "    [DRON %d] Limit cykli osiągnięty (cykle: %d). Złomowanie." RESET "\n", id_wew, cykle);
             break;
         }
 
-        loguj("    [DRON %d] Naładowany. Czekam na wylot.\n", id_wew);
+        loguj(ZIELONY "    [DRON %d] Bateria naładowana (100%%). Czekam na wylot." RESET "\n", id_wew);
 
         int bramka = (rand()%2) + SEM_WEJSCIE_1;
 
         P(sem_id, bramka);
-        loguj("    [DRON %d] Wylatuję bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 +1);
+        loguj("    [DRON %d] Wylot bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 +1);
         sleep(1);
         V(sem_id, bramka);
 
@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
         V(sem_id, SEM_PAMIEC);
 
         if (zniszcz_platforme) {
-            loguj("    [DRON %d] Demontuje za sobą platformę.\n", id_wew);
+            loguj(CZERWONY "    [DRON %d] Demontaż platformy (Redukcja)." RESET "\n", id_wew);
         } else {
             V(sem_id, SEM_BAZA);
         }
@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
         roj->drony[id_wew].stan = STAN_LOT;
         V(sem_id, SEM_PAMIEC);
 
-        loguj("    [DRON %d] Wyleciałem. Latam...\n", id_wew);
+        loguj("    [DRON %d] Lot w strefie operacyjnej...\n", id_wew);
 
         while(1) {
             sleep(1);
@@ -128,12 +128,12 @@ int main(int argc, char *argv[]) {
             V(sem_id, SEM_PAMIEC);
 
             if (poziom <= BAT_CRITICAL) {
-                loguj("    [DRON %d] Bateria słaba (%d%%). Wracam do bazy.\n", id_wew, poziom);
+                loguj(ZOLTY "    [DRON %d] Bateria słaba (%d%%). Powrót do bazy." RESET "\n", id_wew, poziom);
                 break;
             }
 
             if (poziom <= 0) {
-                loguj("    [DRON %d] Bateria 0%%. Rozbity.\n", id_wew);
+                loguj(CZERWONY "    [DRON %d] Bateria 0%%. Rozbity w locie." RESET "\n", id_wew);
                 P(sem_id, SEM_PAMIEC);
                 roj->drony[id_wew].stan = STAN_WOLNY;
                 V(sem_id, SEM_PAMIEC);
@@ -145,7 +145,7 @@ int main(int argc, char *argv[]) {
         roj->drony[id_wew].stan = STAN_POWROT;
         V(sem_id, SEM_PAMIEC);
 
-        loguj("    [DRON %d] Zbliżam się do bazy. Próbuję lądować...\n", id_wew);
+        loguj("    [DRON %d] Zbliżam się do bazy...\n", id_wew);
 
         while(1) {
             struct sembuf wejdz = {SEM_BAZA, -1, IPC_NOWAIT};
@@ -158,10 +158,10 @@ int main(int argc, char *argv[]) {
                 int poziom = roj->drony[id_wew].bateria;
                 V(sem_id, SEM_PAMIEC);
 
-                loguj("    [DRON %d] Baza pełna. Krążę... (Bateria: %d%%)\n", id_wew, poziom);
+                loguj(ZOLTY "    [DRON %d] Baza pełna. Oczekiwanie..." RESET "\n", id_wew);
 
                 if (poziom <=0 ) {
-                    loguj("    [DRON %d] Bateria 0%%. Rozbity.\n", id_wew);
+                    loguj(CZERWONY "    [DRON %d] Bateria 0%%. Rozbity w kolejce." RESET "\n", id_wew);
                     P(sem_id, SEM_PAMIEC);
                     roj->drony[id_wew].stan = STAN_WOLNY;
                     V(sem_id, SEM_PAMIEC);
@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
 
     V(sem_id, SEM_BAZA);
 
-    loguj("    [DRON %d] Złomowanie zakończone.\n", id_wew);
+    loguj(CZERWONY "    [DRON %d] Złomowanie zakończone." RESET "\n", id_wew);
 
     shmdt(roj);
     return 0;

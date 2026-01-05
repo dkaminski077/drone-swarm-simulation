@@ -28,7 +28,7 @@ void sprzatanie(int sig) {
         if(msgctl(g_msg_id, IPC_RMID, NULL) != -1) loguj("[OPERATOR] Kolejka komunikatów usunięta.\n");
     } 
 
-    loguj("[OPERATOR] KONIEC SYMULACJI\n");
+    loguj(CZERWONY "[OPERATOR] KONIEC SYMULACJI" RESET "\n");
         
     kill(0, SIGKILL);
     exit(0);
@@ -74,17 +74,10 @@ int main() {
     }
     g_sem_id = sem_id;
 
-    if (semctl(sem_id, SEM_BAZA, SETVAL, POJEMNOSC_BAZY) == -1) {
-        perror("Błąd inizjalizacji SEM_BAZA");
-        return 1;
-    }
-
+    if (semctl(sem_id, SEM_BAZA, SETVAL, POJEMNOSC_BAZY) == -1) perror("Błąd SEM_BAZA");
     if (semctl(sem_id, SEM_WEJSCIE_1, SETVAL, 1) == -1) perror("Błąd SEM_WEJSCIE_1");
     if (semctl(sem_id, SEM_WEJSCIE_2, SETVAL, 1) == -1) perror("Błąd SEM_WEJSCIE_2");
     if (semctl(sem_id, SEM_PAMIEC, SETVAL, 1) == -1) perror("Błąd SEM_PAMIEC");
-
-    loguj("[OPERATOR] Semfory ustawione. Baza: %d miejsc, Wejścia otwarte.\n", POJEMNOSC_BAZY);
-
 
     struct StanRoju *roj = (struct StanRoju*) shmat(shm_id, NULL, 0);
 
@@ -101,7 +94,7 @@ int main() {
         roj->drony[i].stan = STAN_WOLNY;
     }
 
-    loguj("[OPERATOR] Zaczynam zarządzać rojem. Limit dronów: %d. Max możliwy: %d. (Ctrl+C aby zakończyć)\n", N, MAX_DRONOW);
+    loguj(ZIELONY "[OPERATOR] START SYSTEMU. Baza: %d | Drony %d/%d (Ctrl+C aby zakończyć)" RESET "\n", POJEMNOSC_BAZY, N, MAX_DRONOW);
 
     int start_index = 0;
 
@@ -115,12 +108,12 @@ int main() {
                     if((roj->pojemnosc_bazy + 1) * 2 < roj->aktualny_limit_dronow) {
                         V(sem_id, SEM_BAZA);
                         roj->pojemnosc_bazy++;
-                        loguj("[SYGNAŁ 1] Dodano drona i platformę. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
+                        loguj(ZIELONY "[SYGNAŁ 1] Rozbudowa! Baza: %d, Drony: %d" RESET "\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
                     } else {
-                        loguj("[SYGNAŁ 1] Dodano drona. Baza: %d, Drony: %d\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
+                        loguj(ZIELONY "[SYGNAŁ 1] Dodano drona. Baza: %d, Drony: %d" RESET "\n", roj->pojemnosc_bazy, roj->aktualny_limit_dronow);
                     }
                 } else {
-                    loguj("[SYGNAŁ 1] Osiągnięto MAX_DRONOW (2*N)\n");
+                    loguj(ZOLTY "[SYGNAŁ 1] Osiągnięto MAX_DRONOW (2*N)" RESET "\n");
                 }
             } else if (msg.mtype == TYP_USUN_PLATFORMY) {
                 int stary_limit = roj->aktualny_limit_dronow;
@@ -135,7 +128,7 @@ int main() {
 
                 if (do_usuniecia < 0) do_usuniecia = 0;
 
-                loguj("[SYGNAŁ 2] Redukcja! Drony: %d->%d. Baza: %d->%d\n", stary_limit, nowy_limit, obecna_baza, max_dozwolona_baza);
+                loguj(ZOLTY "[SYGNAŁ 2] Redukcja! Drony: %d->%d. Baza: %d->%d" RESET "\n", stary_limit, nowy_limit, obecna_baza, max_dozwolona_baza);
 
                 roj->aktualny_limit_dronow = nowy_limit;
                 roj->pojemnosc_bazy = max_dozwolona_baza;
@@ -153,9 +146,9 @@ int main() {
                     P(sem_id, SEM_PAMIEC);
                     roj->platformy_do_usuniecia += reszta;
                     V(sem_id, SEM_PAMIEC);
-                    loguj("[SYGNAŁ 2] Zdemontowano od razu: %d platform. Pozostało do usunięcia: %d.\n", usuniete_natychmiast, reszta);
+                    loguj("[SYGNAŁ 2] Zdemontowano od razu: %d platform. Czeka na demontaż: %d.\n", usuniete_natychmiast, reszta);
                 } else {
-                    loguj("[SYGNAŁ 2] Zdemontowano od razu %d platform.\n", usuniete_natychmiast);
+                    loguj("[SYGNAŁ 2] Zdemontowano od razu wszystkie %d platform.\n", usuniete_natychmiast);
                 }
             }
         }

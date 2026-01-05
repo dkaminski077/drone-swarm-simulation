@@ -14,6 +14,11 @@
 #include <fcntl.h>
 #include <string.h>
 
+#define RESET   "\033[0m"
+#define CZERWONY "\033[1;31m"
+#define ZIELONY  "\033[1;32m"
+#define ZOLTY    "\033[1;33m"
+
 #define N 12
 #define MAX_DRONOW (N*2)
 #define POJEMNOSC_BAZY 4
