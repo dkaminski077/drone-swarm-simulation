@@ -1,20 +1,39 @@
+/*
+ * Temat: Rój Dronów
+ * Autor: Dawid Kamiński (155272)
+ * 
+ * Plik: dron.c (Proces Potomny)
+ * 
+ * Opis działania:
+ * - Symuluje cykl życia drona: Ładowanie -> Start -> Lot -> Powrót -> Ładowanie.
+ * - Synchronizuje dostęp do zasobów za pomocą Semaforów.
+ * - Obsługuje sygnał SIGUSR1 (Atak Samobójczy) wysłany przez Dowódcę.
+ * - Fizycznie realizuje niszczenie platform (spłacanie długu) przy wylocie z bazy.
+ * - Loguje stany i błedy do pliku. 
+*/
+
 #include "common.h"
 
 struct StanRoju *g_roj = NULL;
 int g_sem_id = -1;
 int g_id_drona = -1;
 
-
+// Operacja P (Opuszczanie/Czekanie)
 void P(int sem_id, int sem_num) {
     struct sembuf op = {sem_num, -1, 0};
     semop(sem_id, &op, 1);
 }
 
+// Operacja V (Podniesienie/Sygnalizowanie)
 void V(int sem_id, int sem_num) {
     struct sembuf op = {sem_num, 1, 0};
     semop(sem_id, &op, 1);
 }
 
+/*
+ * HANDLER SYGNAŁU ATAKU (SIGUSR1)
+ * Funkcja wywoływana asynchronicznie przez Dowódcę.
+*/
 void atak(int sig) {
     if (g_id_drona == -1) return;
 
@@ -23,6 +42,7 @@ void atak(int sig) {
 
     loguj(CZERWONY "    [DRON %d] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%)." RESET "\n", g_id_drona, bateria);
 
+    // Dron ignoruje atak, jeśli ma za mało energii
     if (bateria < 20) {
         loguj(ZOLTY "    [DRON %d] Atak anulowany - zbyt słaba bateria (<20%%)." RESET "\n", g_id_drona);
         return;
@@ -30,10 +50,12 @@ void atak(int sig) {
 
     loguj(CZERWONY "    [DRON %d] !!! ATAK WYKONANY !!!" RESET "\n", g_id_drona);
 
+    // Aktualizacja stanu i zwolnienie zasobów
     P(g_sem_id, SEM_PAMIEC);
     g_roj->drony[g_id_drona].stan = STAN_WOLNY;
     V(g_sem_id, SEM_PAMIEC);
 
+    // Jeśli był w bazie, musi zwolnić miejsce
     if(stan == STAN_LADOWANIE) {
         V(g_sem_id, SEM_BAZA);
     }
@@ -50,8 +72,10 @@ int main(int argc, char *argv[]) {
 
     g_id_drona = id_wew;
 
+    // Inicjalizacja generatora liczb losowych (nikalna dla procesu)
     srand(time(NULL) ^ getpid());
 
+    // Pobranie kluczy i dołączenie do zasobów
     key_t klucz_shm = ftok(FTOK_PATH, FTOK_ID);
     key_t klucz_sem = ftok(FTOK_PATH, 'S');
 
@@ -72,19 +96,23 @@ int main(int argc, char *argv[]) {
     g_roj = roj;
     g_sem_id = sem_id;
 
+    // Rejestracja sygnału ataku
     signal(SIGUSR1, atak);
 
     loguj(ZIELONY "    [DRON %d] PID: %d. Uruchomiono. Bateria 0%%." RESET "\n", id_wew, getpid());
 
+    // GŁOWNA PĘTLA ŻYCIA DRONA
     while(1) {
-        sleep(2); //T1
+        sleep(2);   // Czas T1 - Symulacja ładowania 
 
+        // Reset baterii
         P(sem_id, SEM_PAMIEC);
         roj->drony[id_wew].bateria = 100;
         roj->drony[id_wew].liczba_cykli++;
         int cykle = roj->drony[id_wew].liczba_cykli;
         V(sem_id, SEM_PAMIEC);
 
+        // Sprawdzenie zużycia
         if (cykle > MAX_CYKLI) {
             loguj(ZOLTY "    [DRON %d] Limit cykli osiągnięty (cykle: %d). Złomowanie." RESET "\n", id_wew, cykle);
             break;
@@ -92,33 +120,41 @@ int main(int argc, char *argv[]) {
 
         loguj(ZIELONY "    [DRON %d] Bateria naładowana (100%%). Czekam na wylot." RESET "\n", id_wew);
 
+        // Losowanie bramki wylotowej
         int bramka = (rand()%2) + SEM_WEJSCIE_1;
 
+        // Wylot
         P(sem_id, bramka);
         loguj("    [DRON %d] Wylot bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 +1);
         sleep(1);
         V(sem_id, bramka);
 
+        // OBSŁUGA SPŁACANIA DŁUGU
         P(sem_id, SEM_PAMIEC);
         int zniszcz_platforme = 0;
         if (roj->platformy_do_usuniecia > 0) {
-            roj->platformy_do_usuniecia--;
+            roj->platformy_do_usuniecia--;  // Zmniejszenie długu
             zniszcz_platforme = 1;
         }
         V(sem_id, SEM_PAMIEC);
 
         if (zniszcz_platforme) {
+            // Zamiast oddać semafor (V), niszczymy go (nie wywołujemy V)
             loguj(CZERWONY "    [DRON %d] Demontaż platformy (Redukcja)." RESET "\n", id_wew);
         } else {
+            // Standardowe zwolnienie miejsca
             V(sem_id, SEM_BAZA);
         }
-
+        // -----------------------------------------
+        
+        // Zmiana stanu na LOT
         P(sem_id, SEM_PAMIEC);
         roj->drony[id_wew].stan = STAN_LOT;
         V(sem_id, SEM_PAMIEC);
 
         loguj("    [DRON %d] Lot w strefie operacyjnej...\n", id_wew);
 
+        // Symulacja lotu i zużycia baterii
         while(1) {
             sleep(1);
 
@@ -127,11 +163,13 @@ int main(int argc, char *argv[]) {
             int poziom = roj->drony[id_wew].bateria;
             V(sem_id, SEM_PAMIEC);
 
+            // Powrót do bazy przy niskim stanie baterii
             if (poziom <= BAT_CRITICAL) {
                 loguj(ZOLTY "    [DRON %d] Bateria słaba (%d%%). Powrót do bazy." RESET "\n", id_wew, poziom);
                 break;
             }
 
+            // Awaria (rozbicie)
             if (poziom <= 0) {
                 loguj(CZERWONY "    [DRON %d] Bateria 0%%. Rozbity w locie." RESET "\n", id_wew);
                 P(sem_id, SEM_PAMIEC);
@@ -141,18 +179,21 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Procedura powrotu
         P(sem_id, SEM_PAMIEC);
         roj->drony[id_wew].stan = STAN_POWROT;
         V(sem_id, SEM_PAMIEC);
 
         loguj("    [DRON %d] Zbliżam się do bazy...\n", id_wew);
 
+        // Oczekiwanie na wolne miejsce w bazie
         while(1) {
             struct sembuf wejdz = {SEM_BAZA, -1, IPC_NOWAIT};
 
             if (semop(sem_id, &wejdz, 1) == 0) {
-                break;
+                break;  // Udało się wejść
             } else {
+                // Czekanie w kolejce (zużywa baterię)
                 P(sem_id, SEM_PAMIEC);
                 roj->drony[id_wew].bateria -= 10;
                 int poziom = roj->drony[id_wew].bateria;
@@ -171,22 +212,25 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Lądowanie
         bramka = (rand()%2) + SEM_WEJSCIE_1;
         P(sem_id, bramka);
         loguj("    [DRON %d] Ląduję bramką %d...\n", id_wew, bramka - SEM_WEJSCIE_1 + 1);
         sleep(1);
         V(sem_id, bramka);
 
+        // Zmiana stanu na ładowanie
         P(sem_id, SEM_PAMIEC);
         roj->drony[id_wew].stan = STAN_LADOWANIE;
         V(sem_id, SEM_PAMIEC);
     }
 
+    // Zakończenie pracy (naturalne zużycie)
     P(sem_id, SEM_PAMIEC);
     roj->drony[id_wew].stan = STAN_WOLNY;
     V(sem_id, SEM_PAMIEC);
 
-    V(sem_id, SEM_BAZA);
+    V(sem_id, SEM_BAZA);    // Zwalnianie miejsca
 
     loguj(CZERWONY "    [DRON %d] Złomowanie zakończone." RESET "\n", id_wew);
 
