@@ -122,7 +122,7 @@ int main(int argc, char *argv[]) {
 
     // GŁOWNA PĘTLA ŻYCIA DRONA
     while(1) {
-        unsigned int ladowanie = 2;
+        unsigned int ladowanie = CZAS_LADOWANIA;
         while (ladowanie > 0) {
             if (obsluz_atak(id_wew, sem_id, roj)) {
                 shmdt(roj);
@@ -133,7 +133,7 @@ int main(int argc, char *argv[]) {
 
         // Reset baterii
         P(sem_id, SEM_PAMIEC);
-        roj->drony[id_wew].bateria = 100;
+        roj->drony[id_wew].bateria = BATERIA_PELNA;
         roj->drony[id_wew].liczba_cykli++;
         int cykle = roj->drony[id_wew].liczba_cykli;
         V(sem_id, SEM_PAMIEC);
@@ -192,10 +192,10 @@ int main(int argc, char *argv[]) {
                 exit(0);
             }
 
-            sleep(1);
+            sleep(CZAS_LOTU);
 
             P(sem_id, SEM_PAMIEC);
-            roj->drony[id_wew].bateria -= 15;
+            roj->drony[id_wew].bateria -= KOSZT_LOTU;
             int poziom = roj->drony[id_wew].bateria;
             V(sem_id, SEM_PAMIEC);
 
@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
             } else {
                 // Czekanie w kolejce (zużywa baterię)
                 P(sem_id, SEM_PAMIEC);
-                roj->drony[id_wew].bateria -= 10;
+                roj->drony[id_wew].bateria -= KOSZT_CZEKANIA;
                 int poziom = roj->drony[id_wew].bateria;
                 V(sem_id, SEM_PAMIEC);
 

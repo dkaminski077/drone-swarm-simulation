@@ -40,6 +40,11 @@
 #define POJEMNOSC_BAZY 4    // Początkowa liczba miejsc w bazie
 #define BAT_CRITICAL 20     // Poziom baterii wymuszający powrót do bazy
 #define MAX_CYKLI 5         // Czas życia drona (liczba cykli ładowania przed złomowaniem)
+#define CZAS_LADOWANIA 2    // Czas trwania ładowania (sekundy)
+#define CZAS_LOTU 1         // Czas trwania jednego cyklu lotu (sekundy)
+#define KOSZT_LOTU 15       // Zużycie baterii w locie (%)
+#define KOSZT_CZEKANIA 10   // Zużycie baterii w kolejce do bazy (%)
+#define BATERIA_PELNA 100   // Stan po naładowaniu (%)
 
 #define FTOK_PATH "common.h"
 #define FTOK_ID 'R'
