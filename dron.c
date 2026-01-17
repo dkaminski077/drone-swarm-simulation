@@ -18,6 +18,12 @@ struct StanRoju *g_roj = NULL;
 int g_sem_id = -1;
 int g_id_drona = -1;
 
+/* FLAGA SYGNAŁOWA (Zabezpieczenie przed Deadlockiem)
+ * Używamy typu volatile sig_atomic_t, aby zapewnić atomowość zapisu w handlerze.
+ * Dzięki temu nie musimy używać semaforów wewnątrz funkcji obsługi sygnału.
+ */
+volatile sig_atomic_t g_atak_otrzymany = 0;
+
 // Operacja P (Opuszczanie/Czekanie)
 void P(int sem_id, int sem_num) {
     struct sembuf op = {sem_num, -1, 0};
@@ -32,35 +38,46 @@ void V(int sem_id, int sem_num) {
 
 /*
  * HANDLER SYGNAŁU ATAKU (SIGUSR1)
- * Funkcja wywoływana asynchronicznie przez Dowódcę.
+ * Funkcja wywoływana asynchronicznie przez system.
+ * Jedynie ustawia flagę - cała logika wykonywana jest bezpiecznie w pętli głównej.
 */
 void atak(int sig) {
-    if (g_id_drona == -1) return;
+    g_atak_otrzymany = 1;
+}
 
-    int bateria = g_roj->drony[g_id_drona].bateria;
-    int stan = g_roj->drony[g_id_drona].stan;
-
-    loguj(CZERWONY "    [DRON %d] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%)." RESET "\n", g_id_drona, bateria);
+/*
+ * FUNKCJA REALIZUJĄCA ATAK
+ * Wywoływana w pętli głównej w bezpiecznych momentach.
+ * Zwraca 1, jeśli dron zginął (należy zakończyć proces), 0 w przeciwnym razie.
+ */
+int obsluz_atak(int id_wew, int sem_id, struct StanRoju *roj) {
+    if (!g_atak_otrzymany) return 0;
+    
+    int bateria = roj->drony[id_wew].bateria;
+    int stan = roj->drony[id_wew].stan;
+    
+    loguj(CZERWONY "    [DRON %d] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: %d%%)." RESET "\n", id_wew, bateria);
 
     // Dron ignoruje atak, jeśli ma za mało energii
     if (bateria < 20) {
-        loguj(ZOLTY "    [DRON %d] Atak anulowany - zbyt słaba bateria (<20%%)." RESET "\n", g_id_drona);
-        return;
+        loguj(ZOLTY "    [DRON %d] Atak anulowany - zbyt słaba bateria (<20%%)." RESET "\n", id_wew);
+        g_atak_otrzymany = 0;  // Reset flagi
+        return 0;  // Kontynuuj misję
     }
 
-    loguj(CZERWONY "    [DRON %d] !!! ATAK WYKONANY !!!" RESET "\n", g_id_drona);
+    loguj(CZERWONY "    [DRON %d] !!! ATAK WYKONANY !!!" RESET "\n", id_wew);
 
     // Aktualizacja stanu i zwolnienie zasobów
-    P(g_sem_id, SEM_PAMIEC);
-    g_roj->drony[g_id_drona].stan = STAN_WOLNY;
-    V(g_sem_id, SEM_PAMIEC);
+    P(sem_id, SEM_PAMIEC);
+    roj->drony[id_wew].stan = STAN_WOLNY;
+    V(sem_id, SEM_PAMIEC);
 
     // Jeśli był w bazie, musi zwolnić miejsce
     if(stan == STAN_LADOWANIE) {
-        V(g_sem_id, SEM_BAZA);
+        V(sem_id, SEM_BAZA);
     }
 
-    exit(0);
+    return 1;  // Atak wykonany - zakończ proces
 }
 
 int main(int argc, char *argv[]) {
@@ -71,6 +88,8 @@ int main(int argc, char *argv[]) {
     int id_wew = atoi(argv[1]);
 
     g_id_drona = id_wew;
+    g_atak_otrzymany = 0;
+
 
     // Inicjalizacja generatora liczb losowych (nikalna dla procesu)
     srand(time(NULL) ^ getpid());
@@ -103,7 +122,14 @@ int main(int argc, char *argv[]) {
 
     // GŁOWNA PĘTLA ŻYCIA DRONA
     while(1) {
-        sleep(2);   // Czas T1 - Symulacja ładowania 
+        unsigned int ladowanie = 2;
+        while (ladowanie > 0) {
+            if (obsluz_atak(id_wew, sem_id, roj)) {
+                shmdt(roj);
+                exit(0);
+            }
+            ladowanie = sleep(ladowanie);
+        }
 
         // Reset baterii
         P(sem_id, SEM_PAMIEC);
@@ -119,6 +145,11 @@ int main(int argc, char *argv[]) {
         }
 
         loguj(ZIELONY "    [DRON %d] Bateria naładowana (100%%). Czekam na wylot." RESET "\n", id_wew);
+
+        if (obsluz_atak(id_wew, sem_id, roj)) {
+            shmdt(roj);
+            exit(0);
+        }
 
         // Losowanie bramki wylotowej
         int bramka = (rand()%2) + SEM_WEJSCIE_1;
@@ -156,6 +187,11 @@ int main(int argc, char *argv[]) {
 
         // Symulacja lotu i zużycia baterii
         while(1) {
+            if (obsluz_atak(id_wew, sem_id, roj)) {
+                shmdt(roj);
+                exit(0);
+            }
+
             sleep(1);
 
             P(sem_id, SEM_PAMIEC);
@@ -188,6 +224,11 @@ int main(int argc, char *argv[]) {
 
         // Oczekiwanie na wolne miejsce w bazie
         while(1) {
+            if (obsluz_atak(id_wew, sem_id, roj)) {
+                shmdt(roj);
+                exit(0);
+            }
+
             struct sembuf wejdz = {SEM_BAZA, -1, IPC_NOWAIT};
 
             if (semop(sem_id, &wejdz, 1) == 0) {
