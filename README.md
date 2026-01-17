@@ -14,6 +14,7 @@ Głównym celem projektu było stworzenie stabilnego, odpornego na błędy (dead
 
 W projekcie zaimplementowano szereg zaawansowanych mechanizmów systemowych:
 
+* **Bezpieczna Obsługa Sygnałów (Async-Signal-Safety):** Nowy mechanizm obsługi `SIGUSR1` oparty na flagach `volatile sig_atomic_t`. Logika biznesowa (operacje na semaforach, I/O) została przeniesiona z handlera do pętli głównej, co całkowicie eliminuje ryzyko zakleszczeń (deadlock) i uszkodzenia stanu pamięci.
 * **Autorski algorytm "Lazy Release":** Rozwiązanie problemu zakleszczeń przy redukcji zasobów. Operator nie blokuje się oczekując na zwolnienie semafora, lecz zleca "dług", który drony spłacają asynchronicznie przy wylocie (atomowe niszczenie semafora).
 * **Zombie Cleanup (Non-blocking):** Operator działa w trybie ciągłym, na bieżąco usuwając martwe procesy potomne (`waitpid` z flagą `WNOHANG`), co zapobiega zaśmiecaniu tablicy procesów.
 * **Logika Agentowa:** Drony posiadają "instynkt samozachowawczy" – potrafią odrzucić rozkaz ataku samobójczego, jeśli poziom baterii jest krytyczny (<20%).
@@ -29,18 +30,23 @@ System składa się z trzech niezależnych modułów komunikujących się przez 
 ## 🚀 Instrukcja Uruchomienia
 
 ### 1. Kompilacja
-Wymagany jest kompilator GCC oraz system Linux.
+Wymagany jest kompilator GCC, narzędzie Make oraz system Linux.
 
-    gcc operator.c -o operator
-    gcc dron.c -o dron
-    gcc dowodca.c -o dowodca
+Projekt posiada plik `Makefile`, który automatyzuje proces budowania. Wystarczy wpisać:
+
+    make
+
+Aby wyczyścić pliki po kompilacji (oraz plik z logami):
+
+    make clean
 
 ### 2. Uruchomienie
 System wymaga dwóch terminali (lub uruchomienia w tle).
 
 **Terminal 1 (Start Operatora):**
 
-    ./operator
+    make run
+    # lub ręcznie: ./operator
 
 *Operator zainicjalizuje system i zacznie wypuszczać drony.*
 
@@ -60,11 +66,12 @@ Dostępne komendy w menu:
 Aby bezpiecznie zamknąć symulację i posprzątać zasoby, w terminalu Operatora wciśnij `Ctrl+C`.
 
 ## 📂 Struktura Plików
+* `Makefile` - Skrypt automatyzujący kompilację i czyszczenie projektu.
 * `operator.c` - Kod źródłowy zarządcy (inicjalizacja IPC, pętla główna).
 * `dron.c` - Kod źródłowy procesu drona (cykl życia, logika).
 * `dowodca.c` - Kod źródłowy interfejsu sterującego.
-* `common.h` - Plik nagłówkowy (wspólne struktury, stałe, funkcja logowania).
-* `Raport.md` - Szczegółowa dokumentacja projektowa, weryfikacja wymagań i linki do kodu.
+* `common.h` - Plik nagłówkowy (wspólne struktury, stałe symulacji, funkcja logowania).
+* `RAPORT.md` - Szczegółowa dokumentacja projektowa, weryfikacja wymagań i linki do kodu.
 * `TESTY.md` - Opis scenariuszy testowych (QA).
 
 ---
