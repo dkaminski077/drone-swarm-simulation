@@ -45,16 +45,20 @@ System wymaga dwóch terminali (lub uruchomienia w tle).
 
 **Terminal 1 (Start Operatora):**
 
+Uruchomienie domyślne (12 dronów, baza 4):
     make run
-    # lub ręcznie: ./operator
+    # lub: ./operator
 
-*Operator zainicjalizuje system i zacznie wypuszczać drony.*
+Uruchomienie niestandardowe (np. 20 dronów, baza 5):
+    ./operator 20 5
+
+*Operator zainicjalizuje system, zweryfikuje poprawność parametrów (zgodnie z warunkiem P < N/2) i zacznie wypuszczać drony.*
 
 **Terminal 2 (Start Dowódcy):**
 
     ./dowodca
 
-*Uruchomi się interfejs tekstowy do sterowania rojem.*
+*Uruchomi się interfejs tekstowy do sterowania rojem. Dowódca automatycznie wykryje ustawienia roju.*
 
 ### 3. Sterowanie (Dowódca)
 Dostępne komendy w menu:
