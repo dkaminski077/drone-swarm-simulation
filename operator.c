@@ -63,7 +63,47 @@ void sprzatanie(int sig) {
 
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    int n = DEFAULT_N;
+    int baza = DEFAULT_POJEMNOSC_BAZY;
+
+    if (argc == 3) {
+        n = atoi(argv[1]);
+        baza = atoi(argv[2]);
+
+        // Walidacja
+        if (n > LIMIT_TECHNICZNY) {
+            printf(CZERWONY "Błąd: Przekroczono limit techniczny (%d)!\n" RESET, LIMIT_TECHNICZNY);
+            return 1;
+        }
+
+        // WARUNEK 1: Spójność z redukcją (nowy_limit < 4)
+        if (n < 4) {
+            printf(CZERWONY "Błąd: Minimalna liczba dronów to 4!\n" RESET);
+            return 1;
+        }
+
+        // WARUNEK 2: Spójność ze wzorem: max_dozwolona_baza = (n - 1) / 2
+        int max_mozliwa_baza = (n - 1) / 2;
+        
+        // Zabezpieczenie, żeby baza była przynajmniej 1
+        if (max_mozliwa_baza < 1) max_mozliwa_baza = 1;
+
+        if (baza > max_mozliwa_baza) {
+            printf(CZERWONY "Błąd: Zbyt duża baza dla %d dronów!\n" RESET, n);
+            printf("Max baza to: %d (podałeś: %d).\n", max_mozliwa_baza, baza);
+            return 1;
+        }
+        
+        if (baza <= 0) {
+             printf(CZERWONY "Błąd: Baza musi mieć minimum 1 miejsce.\n" RESET);
+             return 1;
+        }
+    } else if (argc != 1) {
+        printf("Użycie: ./operator [Liczba Dronów] [Pojemność Bazy]\n");
+        return 1;
+    }
+
     // Rejestracja handlera do przechwytywania Ctrl+C
     signal(SIGINT, sprzatanie);
 
@@ -104,7 +144,7 @@ int main() {
     g_sem_id = sem_id;
 
     // Ustawienie wartości począrkowych semaforów
-    if (semctl(sem_id, SEM_BAZA, SETVAL, POJEMNOSC_BAZY) == -1) perror("Błąd SEM_BAZA");
+    if (semctl(sem_id, SEM_BAZA, SETVAL, baza) == -1) perror("Błąd SEM_BAZA");
     if (semctl(sem_id, SEM_WEJSCIE_1, SETVAL, 1) == -1) perror("Błąd SEM_WEJSCIE_1");
     if (semctl(sem_id, SEM_WEJSCIE_2, SETVAL, 1) == -1) perror("Błąd SEM_WEJSCIE_2");
     if (semctl(sem_id, SEM_PAMIEC, SETVAL, 1) == -1) perror("Błąd SEM_PAMIEC");
@@ -117,15 +157,16 @@ int main() {
     }
 
     // Inicjalizacja stanu początkowego w pamięci dzielonej
-    roj->pojemnosc_bazy = POJEMNOSC_BAZY;
-    roj->aktualny_limit_dronow = N;
+    roj->pojemnosc_bazy = baza;
+    roj->aktualny_limit_dronow = n;
+    roj->max_limit_logiczny = n * 2;
     roj->platformy_do_usuniecia = 0;    // Licznik długu
 
-    for (int i=0; i<MAX_DRONOW; i++) {
+    for (int i=0; i< n*2; i++) {
         roj->drony[i].stan = STAN_WOLNY;
     }
 
-    loguj(ZIELONY "[OPERATOR] START SYSTEMU. Baza: %d | Drony %d/%d (Ctrl+C aby zakończyć)" RESET "\n", POJEMNOSC_BAZY, N, MAX_DRONOW);
+    loguj(ZIELONY "[OPERATOR] START SYSTEMU. Baza: %d | Drony %d/%d (Ctrl+C aby zakończyć)" RESET "\n", baza, n, n*2);
 
     int start_index = 0;
 
@@ -143,7 +184,8 @@ int main() {
 
             // --- SYGNAŁ 1: ROZBUDOWA ---
             if (msg.mtype == TYP_DODAJ_PLATFORMY) {
-                if(roj->aktualny_limit_dronow < MAX_DRONOW) {
+                int limit_logiczny = n*2;
+                if(roj->aktualny_limit_dronow < limit_logiczny && roj->aktualny_limit_dronow < LIMIT_TECHNICZNY) {
                     roj->aktualny_limit_dronow++;
                     // Warunek: Baza w danym momencie może pomieścić co najwyżej P (P<N/2) dronów
                     if((roj->pojemnosc_bazy + 1) * 2 < roj->aktualny_limit_dronow) {

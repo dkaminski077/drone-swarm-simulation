@@ -47,7 +47,7 @@ int main() {
         // Wyświetlanie menu i aktualnego stanu roju
         printf("\n-----------------------------------\n");
         printf("STATUS: Baza: %d miejsc | Limit dronów: %d/%d\n", roj->pojemnosc_bazy, 
-        roj->aktualny_limit_dronow, MAX_DRONOW);
+        roj->aktualny_limit_dronow, roj->max_limit_logiczny);
         printf("\n-----------------------------------\n");
         printf(" [1] ROZBUDOWA: Dodaj platformy.\n");
         printf(" [2] REDUKCJA: Zdemontuj 50%% platfrom.\n");
@@ -91,7 +91,7 @@ int main() {
             */
             int kadnydaci[MAX_DRONOW];
             int licznik_kandydatow = 0;
-            for (int i=0; i<MAX_DRONOW; i++) {
+            for (int i=0; i<roj->max_limit_logiczny; i++) {
                 int stan = roj->drony[i].stan;
 
                 if(stan == STAN_LOT || stan == STAN_POWROT || stan == STAN_LADOWANIE) {

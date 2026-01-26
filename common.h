@@ -35,9 +35,10 @@
 #define ZOLTY    "\033[1;33m"
 
 // --- PARAMETRY SYMULACJI ---
-#define N 12                // Początkowa liczba dronów
-#define MAX_DRONOW (N*2)    // Maksymalna liczba dronów
-#define POJEMNOSC_BAZY 4    // Początkowa liczba miejsc w bazie
+#define LIMIT_TECHNICZNY 100
+#define MAX_DRONOW LIMIT_TECHNICZNY
+#define DEFAULT_N 12                // Początkowa liczba dronów
+#define DEFAULT_POJEMNOSC_BAZY 4    // Początkowa liczba miejsc w bazie
 #define BAT_CRITICAL 20     // Poziom baterii wymuszający powrót do bazy
 #define MAX_CYKLI 5         // Czas życia drona (liczba cykli ładowania przed złomowaniem)
 #define CZAS_LADOWANIA 2    // Czas trwania ładowania (sekundy)
@@ -71,6 +72,7 @@ struct StanRoju {
     struct Dron drony[MAX_DRONOW];      // Tablica wszystkich dronów
     int pojemnosc_bazy;                 // Aktualna liczba miejsc w bazie
     int aktualny_limit_dronow;          // Aktualny limit liczebności roju
+    int max_limit_logiczny;             // Limit logiczny n * 2
     int platformy_do_usuniecia;         // Zmienna przechowująca liczbę platform, które muszą zostać zniszczone przez drony przy wylocie
 };
 
