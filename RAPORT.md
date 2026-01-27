@@ -3,7 +3,7 @@
 **Autor:** Dawid Kamiński (155272)  
 **Przedmiot:** Systemy Operacyjne  
 **Temat:** "Rój Dronów" – symulacja dostępu do ograniczonych zasobów.  
-**Data:** 2026-01-26  
+**Data:** 2026-01-27 
 
 ---
 
@@ -38,7 +38,7 @@ W projekcie wykorzystano następujące mechanizmy systemu operacyjnego:
 * **Sygnały:**
     * `SIGINT`: Przechwytywany przez Operatora w celu bezpiecznego zamknięcia systemu (usunięcie IPC, zabicie procesów).
     * `SIGUSR1`: Przesyłany przez Dowódcę do konkretnego drona w celu wymuszenia ataku samobójczego.
-* **Logowanie:** Zgodnie z wymogiem 5.2.a, system używa niskopoziomowych funkcji wejścia-wyjścia (`open`, `write`, `close`) z flagą `O_APPEND`. Logi zawierają precyzyjny znacznik czasu ISO 8601 (`RRRR-MM-DD GG:MM:SS`) oraz PID procesu.
+* **Logowanie:** Zgodnie z wymogiem, system używa niskopoziomowych funkcji wejścia-wyjścia (`open`, `write`, `close`) z flagą `O_APPEND`. Logi zawierają precyzyjny znacznik czasu ISO 8601 (`RRRR-MM-DD GG:MM:SS`) oraz PID procesu.
 
 ---
 
@@ -47,7 +47,7 @@ W projekcie wykorzystano następujące mechanizmy systemu operacyjnego:
 W projekcie wykazano się inwencją twórczą, implementując rozwiązania wykraczające poza standardową obsługę IPC, zwiększające stabilność i realizm symulacji:
 
 ### 3.1. Algorytm "Lazy Release" (Asynchroniczna redukcja zasobów)
-Zaimplementowano autorski mechanizm obsługi redukcji bazy w warunkach pełnego obciążenia.
+Zaimplementowano mechanizm obsługi redukcji bazy w warunkach pełnego obciążenia.
 * **Problem:** Podczas redukcji bazy (zmniejszanie limitu miejsc), zajęte sloty nie mogą być natychmiast zwolnione, co w standardowym podejściu prowadziłoby do zakleszczenia (deadlock) Operatora czekającego na semafor.
 * **Rozwiązanie:** Zastosowano system "długu zasobów". Operator nie blokuje się w oczekiwaniu na zwolnienie miejsca, lecz inkrementuje licznik `platformy_do_usuniecia` w pamięci dzielonej. Drony, opuszczając bazę, sprawdzają ten licznik i **atomowo "niszczą"** swoje miejsce (nie podnoszą semafora), spłacając dług systemowy. Pozwala to na płynne skalowanie w dół bez ryzyka zakleszczenia (*deadlock*).
 
@@ -104,7 +104,7 @@ Poprawność działania systemu zweryfikowano zgodnie z dokumentacją testową (
 
 ---
 
-## 5. Linki do kodu (Weryfikacja Wymagań)
+## 5. Linki do kodu
 
 Poniższe odnośniki prowadzą do fragmentów kodu w repozytorium, obrazujących wykorzystanie wymaganych funkcji systemowych:
 
@@ -147,6 +147,18 @@ Poniższe odnośniki prowadzą do fragmentów kodu w repozytorium, obrazujących
 * **Tworzenie:** [operator.c - msgget](https://github.com/dkaminski077/drone-swarm-simulation/blob/421ba4ba5bed91f97ed1ac823bb071b769bc3412/operator.c#L122-L128)
 * **Odbieranie:** [operator.c - msgrcv](https://github.com/dkaminski077/drone-swarm-simulation/blob/421ba4ba5bed91f97ed1ac823bb071b769bc3412/operator.c#L183)
 * **Wysyłanie:** [dowodca.c - msgsnd](https://github.com/dkaminski077/drone-swarm-simulation/blob/421ba4ba5bed91f97ed1ac823bb071b769bc3412/dowodca.c#L64)
+
+### i. Kluczowe algorytmy i logika
+* **Algorytm "Lazy Release" (Operator):** [operator.c - obsługa długu zasobów](https://github.com/dkaminski077/drone-swarm-simulation/blob/2160df3bb455bb7c0d299945fc2cfd89a654d725/operator.c#L236-L244)
+    * *Szczegóły:* Operator nie czeka na zwolnienie semafora, lecz zapisuje "dług" w zmiennej `platformy_do_usuniecia`.
+* **Algorytm "Lazy Release" (Dron):** [dron.c - spłacanie długu](https://github.com/dkaminski077/drone-swarm-simulation/blob/2160df3bb455bb7c0d299945fc2cfd89a654d725/dron.c#L163-L178)
+    * *Szczegóły:* Dron przy wylocie sprawdza dług i zamiast oddać zasób (`V`), niszczy go (nie podnosi semafora).
+* **Bezpieczeństwo Sygnałów (Volatile):** [dron.c - deklaracja flagi](https://github.com/dkaminski077/drone-swarm-simulation/blob/2160df3bb455bb7c0d299945fc2cfd89a654d725/dron.c#L25)
+    * *Szczegóły:* Użycie `volatile sig_atomic_t` zapobiegające wyścigom i optymalizacjom kompilatora w handlerze.
+* **Bezpieczna pętla Sleep:** [dron.c - obsługa przerwań](https://github.com/dkaminski077/drone-swarm-simulation/blob/2160df3bb455bb7c0d299945fc2cfd89a654d725/dron.c#L125-L132)
+    * *Szczegóły:* Pętla `while` wznawiająca `sleep` w przypadku przerwania przez sygnał, gwarantująca pełny czas ładowania.
+* **Logika Agentowa (Odrzucenie rozkazu):** [dron.c - funkcja obsluz_atak](https://github.com/dkaminski077/drone-swarm-simulation/blob/421ba4ba5bed91f97ed1ac823bb071b769bc3412/dron.c#L53-L81)
+    * *Opis:* Dron autonomicznie decyduje o ignorowaniu rozkazu ataku, jeśli poziom baterii jest krytyczny (<20%).
 
 ---
 
