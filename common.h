@@ -1,13 +1,11 @@
 /*
  * Temat: Rój Dronów
  * Autor: Dawid Kamiński (155272)
- * 
- * Plik: common.h (Konfiguracja i Biblioteki)
- * 
- * Opis działania:
+ * * Plik: common.h (Konfiguracja i Biblioteki)
+ * * Opis działania:
  * - Zawiera definicje struktur IPC (StanRoju, Dron, Komunikat).
- * - Definiuje stałe systemowe.
- * - Implementuje funkcję 'zapisz_do_pliku'.
+ * - Definiuje stałe systemowe i limity dla wersji High Performance.
+ * - Implementuje funkcję 'zapisz_do_pliku' do logowania zdarzeń.
 */
 
 #ifndef COMMON_H
@@ -27,23 +25,26 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <string.h>
+#include <errno.h>
 
-// --- KODY KOLORÓw ---
+// --- KODY KOLORÓW ---
 #define RESET   "\033[0m"
 #define CZERWONY "\033[1;31m"
 #define ZIELONY  "\033[1;32m"
 #define ZOLTY    "\033[1;33m"
 
-// --- PARAMETRY SYMULACJI ---
-#define LIMIT_TECHNICZNY 100
+// --- PARAMETRY SYMULACJI (HIGH PERFORMANCE) ---
+#define LIMIT_TECHNICZNY 25000
 #define MAX_DRONOW LIMIT_TECHNICZNY
-#define DEFAULT_N 12                // Początkowa liczba dronów
-#define DEFAULT_POJEMNOSC_BAZY 4    // Początkowa liczba miejsc w bazie
+
+#define DEFAULT_N 5000              // Początkowa liczba dronów
+#define DEFAULT_POJEMNOSC_BAZY 2499 // Początkowa liczba miejsc w bazie
+
 #define BAT_CRITICAL 20     // Poziom baterii wymuszający powrót do bazy
-#define MAX_CYKLI 5         // Czas życia drona (liczba cykli ładowania przed złomowaniem)
-#define CZAS_LADOWANIA 2    // Czas trwania ładowania (sekundy)
-#define CZAS_LOTU 1         // Czas trwania jednego cyklu lotu (sekundy)
-#define KOSZT_LOTU 15       // Zużycie baterii w locie (%)
+#define MAX_CYKLI 20        // Czas życia drona (zwiększony dla stabilności przy dużej skali)
+#define CZAS_LADOWANIA 1    // Czas trwania ładowania (zmniejszony dla dynamiki)
+#define CZAS_LOTU 1         // Czas trwania jednego cyklu lotu
+#define KOSZT_LOTU 5        // Zużycie baterii w locie (%) - zmniejszone
 #define KOSZT_CZEKANIA 10   // Zużycie baterii w kolejce do bazy (%)
 #define BATERIA_PELNA 100   // Stan po naładowaniu (%)
 
@@ -54,9 +55,9 @@
 #define STAN_WOLNY 0        // Slot w tablicy jest pusty (dron nie istnieje)
 #define STAN_LADOWANIE 1    // Dron jest w bazie i ładuje baterię
 #define STAN_LOT 2          // Dron lata w strefie operacyjnej
-#define STAN_POWROT 3       // Dron wraca i czeka przed wejśceim do bazy
+#define STAN_POWROT 3       // Dron wraca i czeka przed wejściem do bazy
 #define STAN_ATAK 4         // Dron wykonuje procedurę ataku samobójczego
-#define STAN_ZNISZCZONY 5   // Stan końcowy (bateria 0% lub po ataku samobójczym)
+#define STAN_ZNISZCZONY 5   // Stan końcowy (bateria 0% lub po ataku)
 
 // Struktura pojedynczego drona w pamięci dzielonej
 struct Dron {
@@ -64,16 +65,16 @@ struct Dron {
     int bateria;            // Poziom baterii (0%-100%)
     int liczba_cykli;       // Liczba odbytych ładowań
     int stan;               // Aktualny stan
-    int id_wewnetrzne;      // ID w tablicy (0-MAX_DRONÓW)
+    int id_wewnetrzne;      // ID w tablicy (0-MAX_DRONOW)
 };
 
-// --- GŁOWNA STRUKTURA PAMIĘCI DZIELONEJ ---
+// --- GŁÓWNA STRUKTURA PAMIĘCI DZIELONEJ ---
 struct StanRoju {
     struct Dron drony[MAX_DRONOW];      // Tablica wszystkich dronów
     int pojemnosc_bazy;                 // Aktualna liczba miejsc w bazie
-    int aktualny_limit_dronow;          // Aktualny limit liczebności roju
-    int max_limit_logiczny;             // Limit logiczny n * 2
-    int platformy_do_usuniecia;         // Zmienna przechowująca liczbę platform, które muszą zostać zniszczone przez drony przy wylocie
+    int aktualny_limit_dronow;          // Aktualny cel liczebności roju
+    int max_limit_logiczny;             // Limit logiczny n * 2 (sufit rozbudowy)
+    int aktywne_drony;                  // Licznik uruchomionych procesów
 };
 
 // Typy komunikatów dla Kolejki
@@ -105,7 +106,7 @@ union semun {
  * Wykorzystuje funkcje: open(), write(), close().
 */
 static void zapisz_do_pliku(const char *tekst) {
-    // O_WRONLY: tylko do zapisu, O_CREAT: towrzy jeśli nie istnieje, O_APEND: dopisuje na końcu
+    // O_WRONLY: tylko do zapisu, O_CREAT: tworzy jeśli nie istnieje, O_APPEND: dopisuje na końcu
     int fd = open("logi.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd != -1) {
         time_t now = time(NULL);
