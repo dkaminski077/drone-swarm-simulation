@@ -66,6 +66,7 @@ struct Dron {
     int liczba_cykli;       // Liczba odbytych ładowań
     int stan;               // Aktualny stan
     int id_wewnetrzne;      // ID w tablicy (0-MAX_DRONOW)
+    int ma_slot_bazy;
 };
 
 // --- GŁÓWNA STRUKTURA PAMIĘCI DZIELONEJ ---
@@ -75,6 +76,7 @@ struct StanRoju {
     int aktualny_limit_dronow;          // Aktualny cel liczebności roju
     int max_limit_logiczny;             // Limit logiczny n * 2 (sufit rozbudowy)
     int aktywne_drony;                  // Licznik uruchomionych procesów
+    int platformy_do_usuniecia;
 };
 
 // Typy komunikatów dla Kolejki
@@ -84,6 +86,7 @@ struct StanRoju {
 // Struktura komunikatu (Dowódca -> Operator)
 struct Komunikat {
     long mtype;
+    int dummy;
 };
 
 // Unia wymagana przez funkcję semctl
@@ -129,8 +132,8 @@ static void zapisz_do_pliku(const char *tekst) {
 #define loguj(...) { \
     char bufor[512]; \
     sprintf(bufor, __VA_ARGS__); \
-    printf("%s", bufor); \
-    fflush(stdout); \
+    /* printf("%s", bufor); fflush(stdout); */ \
+    /*fflush(stdout); */\
     zapisz_do_pliku(bufor); \
 }
 
