@@ -1,179 +1,230 @@
-# Raport z Testów Obciążeniowych i Skalowalności Systemu
+# Raport z Testów Obciążeniowych i Stabilności (v2.0)
 
 **Autor:** Dawid Kamiński (155272)
-**Data:** 28.01.2026
-**Typ Testów:** Stress Testing & High Performance Computing (HPC)
-**Cel:** Weryfikacja stabilności mechanizmów IPC (System V) w warunkach ekstremalnego nasycenia procesami.
+**Data:** 03.02.2026
+**Wersja Systemu:** 2.0 (High Performance / Hybrid Reduction)
+**Cel:** Weryfikacja poprawności zaimplementowanych mechanizmów IPC oraz procedur awaryjnych w kodzie źródłowym projektu "Rój Dronów".
 
 ---
 
-## 1. Wstęp
-Niniejszy dokument przedstawia wyniki testów weryfikujących zachowanie systemu w warunkach brzegowych. Testy przeprowadzono w środowisku Linux.
+## 1. Środowisko i Metodologia
+Testy przeprowadzono w środowisku Linux, wykorzystując narzędzia systemowe do monitorowania zasobów oraz inżynierii chaosu.
+
+* **Limit procesów:** 5000+
+* **Kluczowe mechanizmy:** SIGUSR1 (Atak), SIGTERM (Redukcja), Semafory System V
+* **Narzędzia weryfikacji:** `ipcs`, `ps`, `killall`, `logi.txt`
 
 ---
 
 ## 2. Scenariusze Testowe
 
-### SCENARIUSZ 1: "Burza Sygnałów" (Signal Storm & Self-Healing)
-**Cel:** Sprawdzenie, czy semafory (Mutexy) zachowują spójność, gdy procesy są masowo zabijane sygnałami asynchronicznymi, oraz czy Operator potrafi automatycznie odbudować rój.
+### SCENARIUSZ 1: "Atak Zmasowany" (Signal Storm)
+* **Komenda:** `killall -SIGUSR1 dron`
+* **Cel:** Sprawdzenie, czy system potrafi obsłużyć jednoczesne nadejście tysięcy sygnałów asynchronicznych (interrupcje systemowe) i czy Operator poprawnie odbuduje strukturę roju.
 
-#### Przebieg Testu
-1.  **Start:** Uruchomienie systemu z parametrem **5000 dronów**. Oczekiwanie na pełną stabilizację.
-2.  **Atak:** Wysłanie sygnału do wszystkich procesów potomnych jednocześnie:
-    ```bash
-    killall -SIGUSR1 dron
-    ```
-3.  **Weryfikacja:** Sprawdzenie stanu semaforów poleceniem `ipcs -s` (czy nie ma martwych blokad).
+* **Przebieg:**
+    1.  Uruchomienie roju w konfiguracji domyślnej (5000 dronów).
+    2.  Wysłanie sygnału `SIGUSR1` (Atak) do wszystkich procesów potomnych jednocześnie.
+    3.  Obserwacja licznika `AKTYWNE DRONY` w procesie Monitora.
+* **Wynik:**
+    Operator natychmiast wykrył masowe zakończenie procesów (zwrócone statusy w pętli `waitpid`) i rozpoczął procedurę `fork`, przywracając stan liczebny roju do zadanego limitu w ciągu kilku sekund. Semafory pozostały spójne, nie wystąpiły zakleszczenia.
+    ### Dowód działania (Logi z testu Atak Zmasowany):
 
-#### Dowód (Logi i Wyniki)
-* **Logi Operatora:** System wykrył masową śmierć procesów i natychmiast rozpoczął procedurę odtwarzania (`fork`).
-    ```text
-    [2026-01-28 23:04:23][22359]     [DRON 4262] PID: 22359. Uruchomiono. Bateria 0%.
-    [2026-01-28 23:04:24][22359]     [DRON 4262] Bateria naładowana (100%). Czekam na wylot.
-    [2026-01-28 23:04:46][22359]     [DRON 4262] Wylot bramką 1...
-    [2026-01-28 23:04:46][22359]     [DRON 4262] Lot w strefie operacyjnej...
-    [2026-01-28 23:04:46][22359]     [DRON 4262] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: 100%).
-    [2026-01-28 23:04:46][22359]     [DRON 4262] !!! ATAK WYKONANY !!!
-    [2026-01-28 23:05:06][26957]     [DRON 4262] PID: 26957. Uruchomiono. Bateria 0%.
-    [2026-01-28 23:05:07][26957]     [DRON 4262] Bateria naładowana (100%). Czekam na wylot.
-    [2026-01-28 23:05:16][26957]     [DRON 4262] Wylot bramką 1...
-    [2026-01-28 23:05:16][26957]     [DRON 4262] Lot w strefie operacyjnej...
-    ```
-* **Stan IPC:**
-    ```text
-    ------ Semaphore Arrays --------
-    key        semid      owner      perms      nsems     
-    0x53306d09 35         dawidkamin 666        4
-    ```
-    *(Tablica semaforów pozostała aktywna, zestaw 4 semaforów jest gotowy do dalszej pracy).*
-
-**Wniosek:** Mechanizm synchronizacji jest odporny na przerwania systemowe.  Funkcja `semop` działa bezpiecznie, a system posiada zdolność samoleczenia.
-
----
-
-### SCENARIUSZ 2: "Korek Uliczny" (Semaphore Contention)
-**Cel:** Weryfikacja kolejkowania procesów przez Scheduler systemu operacyjnego w sytuacji ekstremalnego braku zasobów (*Resource Starvation*).
-
-#### Przebieg Testu
-1.  **Konfiguracja:** Ustawienie `CZAS_LADOWANIA = 1s` oraz `BRAMKI = 2` (wąskie gardło).
-2.  **Obciążenie:** Uruchomienie **5000 dronów** walczących o te 2 bramki.
-3.  **Analiza:** Obserwacja kolejki oczekujących na semaforze.
-
-#### Dowód (Logi i Wyniki)
-* **Szczegółowy Stan Semaforów (`ipcs -s -i 35`):**
-    ```text
-    semnum     value      ncount     zcount     pid       
-    0          16         0          0          23066     (Baza - są wolne miejsca)
-    1          0          1189       0          28711     (Bramka 1 - KOREK: 1189 czekających)
-    2          0          1218       0          22423     (Bramka 2 - KOREK: 1218 czekających)
-    3          1          0          0          27431     (Mutex - wolny)
-    ```
-* **Analiza:**
-    Kolumna `value = 0` dla semaforów 1 i 2 oznacza, że bramki są zajęte.
-    Kolumna `ncount > 1000` dowodzi, że system operacyjny utrzymuje stabilną kolejkę ponad 2300 procesów oczekujących na dostęp (FIFO). Nie wystąpił *Deadlock* (system nie zamarzł, procesy wymieniają się miejscami).
-
-**Wniosek:** System operacyjny poprawnie kolejkuje procesy w strukturze semafora System V. Architektura jest odporna na zagłodzenie zasobów. 
+**1. Stan przed atakiem (Monitor):**
+```text
+=== SYSTEM MONITORINGU ROJU (Odświeżanie 10Hz) ===
+--------------------------------------------------
+ POJEMNOŚĆ BAZY:      2499
+ DRONY AKTYWNE:       5000
+ LIMIT OBECNIE:       5000 / 10000
+ ```
+ **2. Reakcja Systemu (Logi Operatora i Dronów):**
+```text
+[2026-02-03 12:56:43][1468]     [DRON 3533] !!! ATAK WYKONANY !!!
+[2026-02-03 12:56:43][1469]     [DRON 4139] Wylot bramką 1...
+[2026-02-03 12:56:43][1478]     [DRON 4638] Lot w strefie operacyjnej...
+[2026-02-03 12:56:43][1478]     [DRON 4638] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: 100%).
+[2026-02-03 12:56:43][1478]     [DRON 4638] !!! ATAK WYKONANY !!!
+[2026-02-03 12:56:43][1482]     [DRON 2108] Wylot bramką 2...
+[2026-02-03 12:56:43][1469]     [DRON 4139] Lot w strefie operacyjnej...
+[2026-02-03 12:56:43][1469]     [DRON 4139] !!! OTRZYMAŁEM ROZKAZ ATAKU SAMOBÓJCZEGO !!! (Bateria: 100%).
+[2026-02-03 12:56:43][1469]     [DRON 4139] !!! ATAK WYKONANY !!!
+ ```
+ **3. Stan w trakcie regeneracji (Monitor):**
+```text
+=== SYSTEM MONITORINGU ROJU (Odświeżanie 10Hz) ===
+--------------------------------------------------
+ POJEMNOŚĆ BAZY:      2499
+ DRONY AKTYWNE:       2143      <-- Spadek do około 2100 (Operator na bieżąco uzupełnia braki)
+ LIMIT OBECNIE        5000 / 10000
+ ```
+  **4. Stan po odbudowie (Monitor):**
+```text
+=== SYSTEM MONITORINGU ROJU (Odświeżanie 10Hz) ===
+--------------------------------------------------
+ POJEMNOŚĆ BAZY:      2499
+ DRONY AKTYWNE:       5000      <-- System automatycznie odtworzył rój
+ LIMIT OBECNIE        5000 / 10000
+ ```
+    
+* **Status:** ✅ **ZALICZONY**
 
 ---
 
-### SCENARIUSZ 3: "Wielkie Wygaszanie" (Dynamiczna Redukcja)
-**Cel:** Sprawdzenie, czy system potrafi płynnie zredukować liczbę procesów z 5000 do 4 bez pozostawiania procesów Zombie (sierot) i wycieków pamięci.
+### SCENARIUSZ 2: "Twardy Reset" (Crash Test)
+* **Cel:** Potwierdzenie, że system zachowuje spójność liczników semaforowych (w szczególności SEM_BAZA) w przypadku nagłego przerwania pracy procesów potomnych sygnałem SIGKILL, który uniemożliwia wykonanie procedur czyszczących wewnątrz procesu drona.
+* **Metodologia:** Test polega na siłowym zakończeniu wszystkich procesów potomnych komendą killall -9 dron przy pełnym obciążeniu systemu, a następnie analizie zachowania procesu Operatora i wartości semafora System V.
+* **Przebieg:**
+    1.  Doprowadzenie do stanu stabilnego: Baza pełna (semafor `SEM_BAZA` bliski 0).
+    2.  Nagłe zabicie wszystkich dronów sygnałem `SIGKILL` (nieprzechwytywalnym).
+    3.  Weryfikacja wartości semafora poleceniem `ipcs -s`.
+* **Wynik:**
+    1. Licznik wolnych miejsc w bazie nie został błędnie podwojony.
+    2. Operator poprawnie wykrył awarię i przyrówcił liczebność roju.
+    3. System zachował stabilność i spójność.
+    ### Dowód działania:
 
-#### Konfiguracja Testowa (Symulacja Przyspieszona)
-W celu zweryfikowania poprawności zwalniania zasobów w rozsądnym czasie, parametry czasowe symulacji zostały zmodyfikowane dla tego konkretnego testu:
-* `MAX_CYKLI`: **5** (zamiast 50) – wymuszenie szybkiej rotacji pokoleń.
-* `CZAS_LOTU / LADOWANIA`: **1s** – skrócenie cyklu pracy przy zachowaniu realnego obciążenia schedulera (funkcja `sleep(1)`).
-* `KOSZT_LOTU`: **20%** – przyspieszone zużycie baterii.
+**1. Stan przed atakiem (Baza pełna):**
+```text
+Semaphore Array semid=10
+uid=1000        gid=1000        cuid=1000       cgid=1000
+mode=0666, access_perms=0666
+nsems = 4
+otime = Tue Feb  3 13:50:29 2026
+ctime = Tue Feb  3 13:50:12 2026
 
-#### Przebieg Testu
-1.  **Stan Wysoki:** System pracuje z 5000 procesami.
-2.  **Rozkaz:** Seria komend redukcji wysyłana pętlą w bashu, aż do osiągnięcia limitu 4.
-3.  **Obserwacja:** Monitorowanie tabeli procesów (`ps`, `htop`) oraz logów zamykania.
+semnum     value      ncount     zcount     pid
+0          2          0          0          23738  <-- SEM_BAZA: Stabilny (tylko 2 wolne miejsca)
+1          0          1205       0          23733
+2          0          1125       0          23817
+3          1          0          0          23662
+```
+**2. Stan po ataku:**
+```text
+Semaphore Array semid=10
+uid=1000        gid=1000        cuid=1000       cgid=1000
+mode=0666, access_perms=0666
+nsems = 4
+otime = Tue Feb  3 13:51:15 2026
+ctime = Tue Feb  3 13:50:12 2026
 
-#### Dowód (Logi i Wyniki)
-* **Logika Redukcji (Graceful Shutdown):**
-    ```text
-    [2026-01-28 23:38:14][785]     [DRON 2004] Bateria naładowana (100%). Czekam na wylot.
-    [2026-01-28 23:38:25][785]     [DRON 2004] Wylot bramką 2...
-    [2026-01-28 23:38:25][785]     [DRON 2004] Demontaż platformy (Redukcja).
-    [2026-01-28 23:38:25][785]     [DRON 2004] Lot w strefie operacyjnej...
-    ...
-    [2026-01-28 23:38:45][785]     [DRON 2004] Baza pełna. Oczekiwanie...
-    [2026-01-28 23:38:46][785]     [DRON 2004] Ląduję bramką 2...
-    [2026-01-28 23:38:47][785]     [DRON 2004] Limit cykli osiągnięty (cykle: 6). Złomowanie.
-    [2026-01-28 23:38:47][785]     [DRON 2004] Złomowanie zakończone.
-    ```
-* **Stan Końcowy (Brak procesów Zombie):**
-    ```text
-      polecenie: ps -C dron
-        PID TTY          TIME CMD
-        4765 pts/1    00:00:00 dron
-        4793 pts/1    00:00:00 dron
-        4803 pts/1    00:00:00 dron
-        4816 pts/1    00:00:00 dron
-    ```
-    *(Tabela procesów czysta. Wszystkie nadmiarowe procesy zostały poprawnie odebrane przez waitpid operatora).*
-
-**Wniosek:** Operator prawidłowo wstrzymał tworzenie nowych procesów. Nadmiarowe jednostki dokonały bezpiecznego zamknięcia (*Graceful Shutdown*) po zakończeniu skróconego cyklu życia.
-
----
-
-### SCENARIUSZ 4: "Test Konfliktu Sterowania" (Race Conditions)
-**Cel:** Weryfikacja atomowości operacji na Pamięci Dzielonej przy sprzecznych rozkazach wysyłanych w milisekundach.
-
-#### Przebieg Testu
-1.  **Atak Rozkazami:** Wysłanie naprzemiennych komend:
-    `(Redukcja)` i `(Rozbudowa)`
-    w bardzo krótkim czasie (szybciej niż czas reakcji Operatora).
-
-#### Dowód (Logi i Wyniki)
-* **Logi Operatora:**
-    ```text
-    [2026-01-28 23:52:58][32747] [SYGNAŁ 2] Redukcja! Drony: 10000->5000. Baza: 4999->2499
-    [2026-01-28 23:52:58][32747] [SYGNAŁ 2] Zdemontowano od razu: 2 platform. Czeka na demontaż: 2498.
-    [2026-01-28 23:53:00][32747] [SYGNAŁ 1] Anulowano usuwanie 2324 platform z powodu rozbudowy.
-    [2026-01-28 23:53:00][32747] [SYGNAŁ 1] ROZBUDOWA (x2)! Baza: 2499->4999. Drony: 5000->10000
-    [2026-01-28 23:53:02][32747] [SYGNAŁ 2] Redukcja! Drony: 10000->5000. Baza: 4999->2499
-    [2026-01-28 23:53:02][32747] [SYGNAŁ 2] Zdemontowano od razu: 0 platform. Czeka na demontaż: 2500.
-    [2026-01-28 23:53:04][32747] [SYGNAŁ 1] Anulowano usuwanie 2319 platform z powodu rozbudowy.
-    [2026-01-28 23:53:04][32747] [SYGNAŁ 1] ROZBUDOWA (x2)! Baza: 2499->4999. Drony: 5000->10000
-    ```
-
-**Wniosek:** Algorytm kompensacji długu w pamięci dzielonej zapobiegł uszkodzeniu liczników logicznych. Stan bazy pozostał spójny mimo wyścigu rozkazów.
+semnum     value      ncount     zcount     pid
+0          0          0          0          29371  <-- SEM_BAZA: 0 wolnych miejsc (Idealne wypełnienie po awarii)
+1          0          1102       0          27730
+2          0          1227       0          27565
+3          1          0          0          29663
+```
+* **Status:** ✅ **ZALICZONY**
 
 ---
 
-### SCENARIUSZ 5: "Szklany Sufit" (Resource Exhaustion / Obsługa błędu fork)
-**Cel:** Weryfikacja stabilności Operatora w sytuacji wyczerpania limitu procesów użytkownika (test odporności na błędy systemowe).
+### SCENARIUSZ 3: "Wielkie Wygaszanie" (Dynamic Reduction)
+* **Mechanizm:** Zmiana limitu w `dowodca`
+* **Cel:** Weryfikacja mechanizmu redukcji
 
-#### Konfiguracja Testowa
-* **Ograniczenie:** `ulimit -u 300` (Sztuczna blokada na poziomie OS).
-* **Zadanie:** Uruchomienie `500` dronów (próba przekroczenia blokady).
+* **Przebieg:**
+    1.  Rój pracuje na pełnych obrotach (5000 dronów).
+    2.  Dowódca wysyła serię rozkazów `[2] REDUKCJA`, zmniejszając limit do minimum technicznego.
+    3.  Obserwacja szybkości zwalniania zasobów w Monitorze.
+* **Wynik:**
+    Operator natychmiast zmienił pojemność bazy (używając `semctl SETVAL`) i wysłał sygnały `SIGTERM` do nadmiarowych procesów. Drony zakończyły pracę w ułamku sekundy, zwalniając pamięć RAM. Nie odnotowano procesów Zombie ani blokady Operatora na zajętym semaforze.
+    ### Dowód działania (Logi z testu Wielkie Wygaszanie):
 
-#### Przebieg Testu
-1.  System wystartował i tworzył procesy do momentu osiągnięcia limitu (~280-300 procesów).
-2.  Po nasyceniu tablicy procesów, funkcja systemowa `fork()` zaczęła zwracać błąd.
-
-#### Dowód (Logi i Wyniki)
-* **Logi z momentu nasycenia:**
-    ```text
-    [2026-01-29 00:26:19][28495] [OPERATOR] Wykryto brak drona na pozycji 60. Tworzę nowego...
-    [2026-01-29 00:26:19][28495] [OPERATOR] Wykryto brak drona na pozycji 63. Tworzę nowego...
-    [2026-01-29 00:26:19][28495] [OPERATOR] Wykryto brak drona na pozycji 67. Tworzę nowego...
-    ...
-    [2026-01-29 00:26:47][28586]     [DRON 67] Bateria 0%. Rozbity w kolejce.
-    [2026-01-29 00:26:47][28584]     [DRON 60] Baza pełna. Oczekiwanie...
-    [2026-01-29 00:26:47][28584]     [DRON 60] Bateria 0%. Rozbity w kolejce.
-    [2026-01-29 00:26:47][28585]     [DRON 63] Baza pełna. Oczekiwanie...
-    [2026-01-29 00:26:47][28585]     [DRON 63] Bateria 0%. Rozbity w kolejce.
-    ```
-* **Zachowanie Systemu:**
-    System **nie uległ awarii** (brak `Segmentation Fault`). Operator kontynuował pracę w trybie ograniczonym, zarządzając tylko tą grupą dronów, którą udało się utworzyć. Nadmiarowe żądania utworzenia procesów były odrzucane przez system, co nie wpłynęło na stabilność procesu głównego.
-
-**Wnioski Końcowe:**
-Aplikacja poprawnie znosi brak zasobów systemowych. Operator jest odporny na błędy funkcji `fork()`, co spełnia wymaganie niezawodności w warunkach braku pamięci/PID-ów.
+**1. Stan początkowy (Pełne obciążenie - Monitor):**
+```text
+=== SYSTEM MONITORINGU ROJU (Odświeżanie 10Hz) ===
+--------------------------------------------------
+ POJEMNOŚĆ BAZY:      2499
+ DRONY AKTYWNE:       5000
+ LIMIT OBECNIE:       5000 / 10000
+ ```
+ **2. Reakcja Operatora (Logi systemowe):**
+```text
+[2026-02-03 13:56:07][8753] [SYGNAŁ 2] Redukcja! Drony: 5000->2500. Baza: 2499->1249
+[2026-02-03 13:56:08][8753] [SYGNAŁ 2] Redukcja! Drony: 2500->1250. Baza: 1249->624
+[2026-02-03 13:56:09][8753] [SYGNAŁ 2] Redukcja! Drony: 1250->625. Baza: 624->312
+[2026-02-03 13:56:09][8753] [SYGNAŁ 2] Redukcja! Drony: 625->312. Baza: 312->155
+[2026-02-03 13:56:09][8753] [SYGNAŁ 2] Redukcja! Drony: 312->156. Baza: 155->77
+[2026-02-03 13:56:09][8753] [SYGNAŁ 2] Redukcja! Drony: 156->78. Baza: 77->38
+[2026-02-03 13:56:09][8753] [SYGNAŁ 2] Redukcja! Drony: 78->39. Baza: 38->19
+[2026-02-03 13:56:09][8753] [SYGNAŁ 2] Redukcja! Drony: 39->19. Baza: 19->9
+[2026-02-03 13:56:10][8753] [SYGNAŁ 2] Redukcja! Drony: 19->9. Baza: 9->4
+[2026-02-03 13:56:10][8753] [SYGNAŁ 2] Redukcja! Drony: 9->4. Baza: 4->1
+[2026-02-03 13:56:10][8753] [SYGNAŁ 2] Redukcja! Drony: 4->4. Baza: 1->1
+ ```
+ **3. Stan po redukcji (Monitor):**
+```text
+=== SYSTEM MONITORINGU ROJU (Odświeżanie 10Hz) ===
+--------------------------------------------------
+ POJEMNOŚĆ BAZY:      1
+ DRONY AKTYWNE:       4
+ LIMIT OBECNIE:       4 / 10000
+ ```
+**4. Weryfikacja czystości procesów (Brak Zombie):**
+```text
+$ ps -ef | grep dron | grep defunct
+(brak wyników)
+ ```
+* **Status:** ✅ **ZALICZONY**
 
 ---
 
-## 3. Podsumowanie Projektu
-Przeprowadzone testy potwierdziły, że projekt spełnia wszystkie założenia specyfikacji, a dodatkowo wykazuje odporność na błędy systemowe i ekstremalne obciążenie.
+### SCENARIUSZ 4: "Korek Uliczny" (Semaphore Contention)
+**Konfiguracja:** 5 000 dronów, 2 bramki wejściowe.
+**Cel:** Weryfikacja wydolności mechanizmu synchronizacji (muteksów) w sytuacji ekstremalnego współbieżnego dostępu (tzw. High Contention). Test sprawdza, czy system operacyjny poprawnie kolejkuje procesy (zapobiegając zagłodzeniu) przy wąskim gardle wejścia/wyjścia.
+
+* **Przebieg:**
+    1.  Ustawienie liczebności roju na 5 000 jednostek (Start systemu).
+    2.  Drony masowo próbują wykonać operację startu i lądowania, rywalizując o dostęp do muteksów `SEM_WEJSCIE_1` (bramka 1) i `SEM_WEJSCIE_2` (bramka 2).
+    3.  Analiza kolejki semaforów poleceniem `ipcs -s -i [SEM_ID]` w momencie szczytowego obciążenia.
+
+* **Wynik (Zrzut stanu semaforów):**
+```text
+Semaphore Array semid=12
+uid=1000        gid=1000        cuid=1000       cgid=1000
+mode=0666, access_perms=0666
+nsems = 4
+otime = Tue Feb  3 14:02:41 2026
+ctime = Tue Feb  3 14:02:28 2026
+
+semnum     value      ncount     zcount     pid
+0          7          0          0          18290   <-- SEM_BAZA: Stabilny (7 wolnych miejsc)
+1          0          1167       0          18245   <-- BRAMKA 1: Blokada (1167 procesów w kolejce)
+2          0          1134       0          18295   <-- BRAMKA 2: Blokada (1134 procesy w kolejce)
+3          1          0          0          18243   <-- PAMIĘĆ: Dostępna (system zarządza stanem roju płynnie)
+```
+* **Status:** ✅ **ZALICZONY**
+
+---
+
+### SCENARIUSZ 5: "Paradoks Rozszerzenia"
+* **Cel:** Weryfikacja spójności struktur IPC podczas jednoczesnej fali zgonów procesów (SIGKILL) oraz gwałtownych zmian limitów (Rozbudowa/Redukcja).
+
+* **Dowód na odzyskiwanie slotów po ataku chaosu:** W logach Operatora odnotowano skuteczne działanie funkcji reclaim_slot_after_dead, która wyczyściła sloty po procesach zabitych sygnałem nieprzechwytywalnym:
+```text
+[2026-02-03 14:48:07][13101] [OPERATOR] Wykryto brak drona na pozycji 4410. Tworzę nowego... 
+[2026-02-03 14:48:07][13101] [OPERATOR] Wykryto brak drona na pozycji 4411. Tworzę nowego...
+```
+Wniosek: Mechanizm waitpid oraz funkcja reclaim_slot_after_dead poprawnie zidentyfikowały martwe procesy i wyczyściły pamięć dzieloną, mimo braku sygnału od samych dronów.
+
+* **Dowód na poprawną spłatę długu (Deferred Release):** Logi dronów potwierdzają, że procesy potomne poprawnie odczytują licznik długu i rezygnują z inkrementacji semafora bazy przy wylocie:
+```text
+[2026-02-03 14:48:07][21028] [DRON 4376] Wylot bramką 1... 
+[2026-02-03 14:48:07][21028] [DRON 4376] Demontaż platformy (Redukcja).
+```
+Wniosek: Mechanizm odroczonego zwalniania zasobów zapobiega "puchnięciu" bazy ponad twarde limity zdefiniowane przez Dowódcę.
+
+* **Dowód na dynamiczną synchronizację bazy:** 
+```text
+[2026-02-03 14:37:18][22937] [SYGNAŁ 1] Rozbudowa x2: Drony 2500->5000 | Baza 1249->2499 | wolne(sem)=1258 zajete=1241
+```
+Wniosek: Log dowodzi atomowości operacji przeliczania bazy. Operator poprawnie wyliczył, że przy nowej pojemności 2499 i 1241 dornach aktualnie przebywających w bazie, semafor należy ustawić na dokładnie 1258 wolnych miejsc (1241 + 1258 = 2499). Gwarantuje to brak wycieków zasobów podczas skalowania systemu.
+
+---
+
+## 3. Podsumowanie
+Przeprowadzone testy obciążeniowe potwierdzają, że system „Rój Dronów” w wersji 2.0 (High Performance) jest w pełni stabilny i przygotowany do pracy w warunkach ekstremalnych.
+
+1. Odporność na Chaos: Zastosowanie waitpid z flagą WNOHANG oraz funkcji sprzątającej sloty pozwala systemowi na odzyskanie 100% spójności po nagłym zakończeniu procesów sygnałem SIGKILL.
+2. Inteligentne Skalowanie: Mechanizm Deferred Release (spłata długu platform) skutecznie rozwiązuje problem synchronizacji zasobów w momencie redukcji bazy, eliminując ryzyko wyścigu (race conditions).
+3. Wydajność IPC: System bezbłędnie zarządza kolejkami semaforowymi nawet przy ekstremalnym współbieżnym dostępie (ponad 1100 procesów oczekujących w kolejce do bramki), nie wykazując tendencji do zakleszczeń (deadlocks).
