@@ -200,6 +200,11 @@ semnum     value      ncount     zcount     pid
 ### SCENARIUSZ 5: "Paradoks Rozszerzenia"
 * **Cel:** Weryfikacja spójności struktur IPC podczas jednoczesnej fali zgonów procesów (SIGKILL) oraz gwałtownych zmian limitów (Rozbudowa/Redukcja).
 
+* **Metodologia:** Wykorzystanie skryptu test_chaos.sh, który w pętli wykonuje następujące kroki:
+    1. Masowe usuwanie 200 losowych procesów dronów sygnałem SIGKILL (wymuszenie asynchronicznego sprzątania slotów).
+    2. Jednoczesne wysyłanie sygnałów ROZBUDOWY i REDUKCJI bazy (wymuszenie wyścigu o dostęp do muteksu pamięci).
+    3. Monitorowanie żywotności procesu Operatora pod krytycznym obciążeniem.
+
 * **Dowód na odzyskiwanie slotów po ataku chaosu:** W logach Operatora odnotowano skuteczne działanie funkcji reclaim_slot_after_dead, która wyczyściła sloty po procesach zabitych sygnałem nieprzechwytywalnym:
 ```text
 [2026-02-03 14:48:07][13101] [OPERATOR] Wykryto brak drona na pozycji 4410. Tworzę nowego... 
