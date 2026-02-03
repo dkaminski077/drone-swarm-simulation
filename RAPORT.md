@@ -1,4 +1,4 @@
-# RAPORT PROJEKTOWY: System Roju Dronów
+# RAPORT PROJEKTOWY: System Roju Dronów (Wersja High-Performance)
 
 **Autor:** Dawid Kamiński (155272)  
 **Przedmiot:** Systemy Operacyjne  
@@ -264,59 +264,61 @@ Wniosek: Log dowodzi atomowości operacji przeliczania bazy. Operator poprawnie 
 
 ---
 
-## 5. Linki do kodu
+## 5. Linki do kodu i wykorzystanych mechanizmów systemowych
 
-Poniższe odnośniki prowadzą do fragmentów kodu w repozytorium, obrazujących wykorzystanie wymaganych funkcji systemowych:
+Poniższe zestawienie prezentuje implementację kluczowych mechanizmów systemowych w projekcie (System V IPC, obsługa sygnałów, zarządzanie procesami).
 
-### a. Tworzenie i obsługa plików
+### a. Tworzenie i obsługa plików (I/O)
+Mechanizm logowania zdarzeń do pliku z użyciem niskopoziomowych funkcji systemowych.
 * **Funkcje:** `open()`, `write()`, `close()`
-* **Implementacja:** [common.h - funkcja zapisz_do_pliku](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/common.h#L111-L129)
-    * *Szczegóły:* Użycie flagi `O_APPEND` do atomowego zapisu logów.
+* **Implementacja (O_APPEND):** [common.h - funkcja zapisz_do_pliku](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/common.h#L111-L129)
 
-### b. Tworzenie procesów
-* **Funkcje:** `fork()`, `execl()`, `exit()`, `waitpid()`
-* **Tworzenie (`fork`):** [operator.c - wywołanie fork](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L359)
-* **Uruchamianie (`execl`):** [operator.c - wywołanie execl](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L365)
-* **Kończenie (`exit`):** [dron.c - wywołanie exit (po ataku)](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dron.c#L243) oraz [dron.c - naturalne wyjście](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dron.c#L393)
-* **Sprzątanie (`waitpid`):** [operator.c - pętla usuwająca zombie](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L243-L245)
+### b. Zarządzanie Procesami (Process Lifecycle)
+Pełny cykl życia procesów: od tworzenia, przez podmianę obrazu, aż po terminację i sprzątanie zombie.
+* **Tworzenie (`fork`):** [operator.c - wywołanie fork dla nowego drona](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L359)
+* **Uruchamianie (`execl`):** [operator.c - przekazanie argumentów do nowego procesu](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L365)
+* **Sprzątanie Zombie (`waitpid`):** [operator.c - pętla z flagą WNOHANG](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L240-L245)
+* **Kończenie (`exit`):**
+    * [dron.c - po ataku samobójczym](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L243)
+    * [dron.c - naturalne wyjście (złomowanie)](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L393)
 
-### c. Tworzenie i obsługa wątków
-* *Nie dotyczy:* Projekt zrealizowano w oparciu o procesy, a nie wątki.
+### c. Obsługa Sygnałów (Signal Handling)
+Zaawansowana obsługa przerwań, w tym sygnały sterujące, kończące oraz bezpieczne flagi.
+* **SIGINT (Zamykanie systemu):** [operator.c - handler sprzątania zasobów (Ctrl+C)](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L172)
+* **SIGUSR1 (Rozkaz Taktyczny):**
+    * [dowodca.c - wysłanie sygnału do konkretnego PID](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dowodca.c#L107)
+    * [dron.c - rejestracja handlera ataku](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L200)
+* **SIGTERM (Redukcja Populacji):**
+    * [operator.c - masowe zabijanie nadmiarowych procesów](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L319)
+    * [dron.c - handler bezpiecznego wyłączenia](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L201)
+* **Bezpieczeństwo (`sig_atomic_t`):** [dron.c - atomowe flagi w handlerach](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L23-L24)
 
-### d. Obsługa sygnałów
-* **Funkcje:** `signal()`, `kill()`
-* **Rejestracja handlera:** [operator.c - signal dla SIGINT](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L172)
-* **Wysyłanie sygnału:** [dowodca.c - kill wysyłający SIGUSR1](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dowodca.c#L107)
-* **Masowa terminacja:** [operator.c - kill(0, SIGKILL)](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L127)
+### d. Synchronizacja i Semafory (System V)
+Wykorzystanie semaforów zarówno jako Mutexy (binarne) jak i Liczniki zasobów (zliczające).
+* **Inicjalizacja (`semget`, `semctl`):** [operator.c - tworzenie i ustawianie wartości początkowych](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L202-L214)
+* **Mutex z flagą `SEM_UNDO`:** [operator.c - funkcje P_mutex oraz V_mutex (zabezpieczenie przed zakleszczeniem)](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L25-L41)
+* **Tryb nieblokujący (`IPC_NOWAIT`):** [dron.c - sprawdzanie dostępności miejsca w bazie](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L337)
+* **Dynamiczna zmiana limitów (`SETVAL`):** [operator.c - skalowanie bazy w locie](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L286-L289)
 
-### e. Synchronizacja procesów
-* **Funkcje:** `semget()`, `semctl()`, `semop()`
-* **Inicjalizacja:** [operator.c - semget i semctl SETVAL](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L202-L214)
-* **Wrappery (SEM_UNDO):** [operator.c - funkcje P_mutex/V_mutex](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L25-L41)
+### e. Pamięć Współdzielona (Shared Memory)
+Główny kanał wymiany danych o stanie roju (tablica struktur).
+* **Tworzenie (`shmget`):** [operator.c - alokacja segmentu pamięci](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L194-L200)
+* **Dołączanie (`shmat`):** [dron.c - mapowanie pamięci do procesu](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L189-L194)
+* **Struktura Danych:** [common.h - definicja struct StanRoju](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/common.h#L72-L80)
+* **Usuwanie (`shmctl`):** [operator.c - destrukcja zasobu (IPC_RMID)](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L110-L112)
 
-### f. Łącza nazwane i nienazwane
-* *Nie dotyczy:* Komunikacja oparta o Pamięć Dzieloną i Kolejki Komunikatów.
-
-### g. Segmenty pamięci dzielonej
-* **Funkcje:** `shmget()`, `shmat()`, `shmctl()`
-* **Tworzenie:** [operator.c - shmget](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L194-L200)
-* **Dołączanie:** [dron.c - shmat](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dron.c#L189-L194)
-* **Usuwanie:** [operator.c - shmctl IPC_RMID](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L111)
-
-### h. Kolejki komunikatów
-* **Funkcje:** `msgget()`, `msgsnd()`, `msgrcv()`
-* **Tworzenie:** [operator.c - msgget](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L186-L192)
-* **Odbieranie:** [operator.c - msgrcv (IPC_NOWAIT)](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L250)
-* **Wysyłanie:** [dowodca.c - msgsnd](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dowodca.c#L61-L77)
+### f. Kolejki Komunikatów (Message Queues)
+Asynchroniczny kanał sterujący na linii Dowódca -> Operator.
+* **Tworzenie (`msgget`):** [operator.c - inicjalizacja kolejki](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L186-L192)
+* **Wysyłanie (`msgsnd`):** [dowodca.c - wysłanie rozkazu rozbudowy/redukcji](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dowodca.c#L61-L77)
+* **Odbieranie (`msgrcv`):** [operator.c - nieblokujący odbiór komunikatów](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/operator.c#L250)
 
 ### i. Kluczowe algorytmy i logika
 * **Algorytm "Deferred Release" (Operator):** [operator.c - obsługa długu zasobów](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/operator.c#L337-L342)
     * *Szczegóły:* Operator zapisuje "dług" w zmiennej `platformy_do_usuniecia` zamiast blokować się na semaforze.
-* **Algorytm "Deferred Release" (Dron):** [dron.c - spłacanie długu](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dron.c#L108-L111)
+* **Algorytm "Deferred Release" (Dron):** [dron.c - spłacanie długu](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L106-L113)
     * *Szczegóły:* Dron przy wylocie sprawdza dług i zamiast oddać zasób (`V`), niszczy go (nie podnosi semafora).
-* **Bezpieczeństwo Sygnałów (Volatile):** [dron.c - deklaracja flag](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dron.c#L23-L24)
-    * *Szczegóły:* Użycie `volatile sig_atomic_t` zapobiegające wyścigom w handlerze.
-* **Bezpieczna pętla Sleep:** [dron.c - obsługa przerwań](https://github.com/dkaminski077/drone-swarm-simulation/blob/fdad8f635634e1eded89e42b6c7ba91aa974605c/dron.c#L212-L224)
+* **Bezpieczna pętla Sleep:** [dron.c - obsługa przerwań](https://github.com/dkaminski077/drone-swarm-simulation/blob/3978e794573b7dc5b7ee292a8b412ec8f51c495a/dron.c#L212-L224)
     * *Szczegóły:* Pętla wznawiająca `sleep` w przypadku przerwania przez sygnał, gwarantująca pełny czas ładowania.
 ---
 
