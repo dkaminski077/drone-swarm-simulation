@@ -2,8 +2,8 @@
 CC = gcc
 CFLAGS = -std=c99 -D_GNU_SOURCE -w
 
-# Pliki wykonywalne
-TARGETS = operator dron dowodca
+# Pliki wykonywalne (DODANO monitor)
+TARGETS = operator dron dowodca monitor
 
 # Domyślny cel (wpisz 'make' w konsoli)
 all: $(TARGETS)
@@ -17,6 +17,10 @@ dron: dron.c common.h
 
 dowodca: dowodca.c common.h
 	$(CC) $(CFLAGS) dowodca.c -o dowodca
+
+# Nowa reguła dla monitora
+monitor: monitor.c common.h
+	$(CC) $(CFLAGS) monitor.c -o monitor
 
 # Czyszczenie (wpisz 'make clean')
 clean:
